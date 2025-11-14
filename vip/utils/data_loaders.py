@@ -26,6 +26,8 @@ import pickle
 from torchvision.utils import save_image
 import json
 import random
+import gym
+import d4rl
 
 
 def get_ind(vid, index, ds="ego4d"):
@@ -119,6 +121,50 @@ class VIPBuffer(IterableDataset):
         im = torch.stack([im0, img, imts0_vip, imts1_vip])
         im = self.preprocess(im)
         return (im, reward)
+
+    def __iter__(self):
+        while True:
+            yield self._sample()
+
+class VIPStateBuffer(IterableDataset):
+    def __init__(self, datasource="franka-kitchen", env_name="kitchen-complete-v0"):
+        self.gym = gym.make(env_name)
+        self.dataset = self.gym.get_dataset()
+        self.obs = self.dataset["observations"]
+        self.episodes = self._get_episodes()
+
+    def _get_episodes(self):
+        terminals = self.dataset["terminals"]
+        episodes = []
+        start_ind = 0
+        for i, is_terminal in enumerate(terminals):
+            if is_terminal:
+                episodes.append((start_ind, i))
+                start_ind = i+1
+        return episodes
+
+    def _sample(self):
+        episode_ind = np.random.randint(0, len(episode_ind))
+        episode_start = self.episodes[episode_ind][0]
+        episode_end = self.episodes[episode_ind][1]
+
+        # Sample (o_t, o_k, o_k+1, o_T) for VIP training
+        start_ind = np.random.randint(episode_start, episode_end-1)
+        end_ind = np.random.randint(start_ind+1, episode_end)
+
+        s0_ind_vip = np.random.randint(start_ind, end_ind)
+        s1_ind_vip = min(s0_ind_vip+1, end_ind)
+
+        ob0 = self.obs[start_ind]
+        obg = self.obs[end_ind]
+        obs0_vip = self.obs[s0_ind_vip]
+        obs1_vip = self.obs[s1_ind_vip]
+
+        # Self-supervised reward (this is always -1)
+        reward = float(s0_ind_vip == end_ind) - 1
+
+        ob = torch.stack([ob0, obg, obs0_vip, obs1_vip])
+        return (ob, reward)
 
     def __iter__(self):
         while True:
