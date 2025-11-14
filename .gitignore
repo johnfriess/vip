@@ -1,0 +1,5 @@
+vipoutput/
+outputs/
+*.egg-info
+__pycache__/
+.nfs*
