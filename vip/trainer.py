@@ -47,6 +47,7 @@ class Trainer():
             state_dim = b_f.shape[-1]
             b_st = b_f.reshape(bs*stack_size, state_dim)
             alles = model(b_st)
+
         alle = alles.reshape(bs, stack_size, -1)
         e0 = alle[:, 0] # initial, o_0
         eg = alle[:, 1] # final, o_g

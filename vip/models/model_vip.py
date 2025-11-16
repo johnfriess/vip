@@ -89,3 +89,35 @@ class VIP(nn.Module):
         d = -torch.linalg.norm(tensor1 - tensor2, dim = -1)
         return d
     
+class StateVIP(nn.Module):
+    def __init__(self, device="cuda", lr=1e-4, state_dim=60, hidden_dim=1024, size=50, l2weight=1.0, l1weight=1.0, gamma=0.98, num_negatives=0):
+        super().__init__()
+        self.device = device
+        self.l2weight = l2weight
+        self.l1weight = l1weight
+
+        self.hidden_dim = hidden_dim
+        self.gamma = gamma
+        self.size = size # Resnet size
+        self.num_negatives = num_negatives
+
+        self.encoder = nn.Sequential(
+            nn.Linear(state_dim, 512),
+            nn.ReLU(),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Linear(512, hidden_dim),
+        )
+
+        ## Optimizer
+        self.encoder_opt = torch.optim.Adam(self.parameters(), lr = lr)
+
+    ## Forward Call (im --> representation)
+    def forward(self, obs):
+        h = self.encoder(obs)
+        return h
+
+    def sim(self, tensor1, tensor2):
+        d = -torch.linalg.norm(tensor1 - tensor2, dim = -1)
+        return d
+    
