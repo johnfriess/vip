@@ -126,7 +126,7 @@ class VIPBuffer(IterableDataset):
         while True:
             yield self._sample()
 
-class VIPStateBuffer(IterableDataset):
+class StateVIPBuffer(IterableDataset):
     def __init__(self, datasource="franka-kitchen", env_name="kitchen-complete-v0"):
         self.gym = gym.make(env_name)
         self.dataset = self.gym.get_dataset()
@@ -137,20 +137,25 @@ class VIPStateBuffer(IterableDataset):
         terminals = self.dataset["terminals"]
         episodes = []
         start_ind = 0
+        # Create intervals for the start and end (inclusive) for each episode
         for i, is_terminal in enumerate(terminals):
             if is_terminal:
                 episodes.append((start_ind, i))
                 start_ind = i+1
+        if start_ind < len(terminals):
+            episodes.append((start_ind, len(terminals) - 1))
         return episodes
 
     def _sample(self):
-        episode_ind = np.random.randint(0, len(episode_ind))
-        episode_start = self.episodes[episode_ind][0]
-        episode_end = self.episodes[episode_ind][1]
+        episode_ind = np.random.randint(0, len(self.episodes))
+        episode_start, episode_end = self.episodes[episode_ind]
+        # Ensure there are at least 3 states in the episode
+        if episode_end - episode_start < 2:
+            return self._sample()
 
         # Sample (o_t, o_k, o_k+1, o_T) for VIP training
         start_ind = np.random.randint(episode_start, episode_end-1)
-        end_ind = np.random.randint(start_ind+1, episode_end)
+        end_ind = np.random.randint(start_ind+1, episode_end+1)
 
         s0_ind_vip = np.random.randint(start_ind, end_ind)
         s1_ind_vip = min(s0_ind_vip+1, end_ind)
@@ -163,7 +168,7 @@ class VIPStateBuffer(IterableDataset):
         # Self-supervised reward (this is always -1)
         reward = float(s0_ind_vip == end_ind) - 1
 
-        ob = torch.stack([ob0, obg, obs0_vip, obs1_vip])
+        ob = torch.from_numpy(np.stack([ob0, obg, obs0_vip, obs1_vip]))
         return (ob, reward)
 
     def __iter__(self):

@@ -41,8 +41,8 @@ class Workspace:
             self.setup()
 
         print("Creating Dataloader")
-        train_iterable = VIPBuffer(datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=self.cfg.doaug)
-        val_iterable = VIPBuffer(datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=0)
+        train_iterable = utils.create_vip_buffer(datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=self.cfg.doaug)
+        val_iterable = utils.create_vip_buffer(datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=0)
 
         self.train_loader = iter(torch.utils.data.DataLoader(train_iterable,
                                          batch_size=self.cfg.batch_size,
@@ -91,7 +91,7 @@ class Workspace:
             t0 = time.time()
             batch_f, batch_rewards = next(self.train_loader)
             t1 = time.time()
-            metrics, st = trainer.update(self.model, (batch_f.cuda(), batch_rewards), self.global_step)
+            metrics, st = trainer.update(self.model, (batch_f.cuda(), batch_rewards), self.global_step, datasource=self.cfg.dataset)
             t2 = time.time()
             self.logger.log_metrics(metrics, self.global_frame, ty='train')
 
@@ -102,7 +102,7 @@ class Workspace:
             if eval_every_step(self.global_step):
                 with torch.no_grad():
                     batch_f, batch_rewards = next(self.val_loader)
-                    metrics, st = trainer.update(self.model, (batch_f.cuda(), batch_rewards), self.global_step, eval=True)
+                    metrics, st = trainer.update(self.model, (batch_f.cuda(), batch_rewards), self.global_step, eval=True, datasource=self.cfg.dataset)
                     self.logger.log_metrics(metrics, self.global_frame, ty='eval')
                     print("EVAL", self.global_step, metrics)
 

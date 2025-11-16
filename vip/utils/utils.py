@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from omegaconf import OmegaConf
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
+from vip.utils.data_loaders import VIPBuffer, StateVIPBuffer
 
 
 class eval_mode:
@@ -162,3 +163,6 @@ def schedule(schdl, step):
                 mix = np.clip((step - duration1) / duration2, 0.0, 1.0)
                 return (1.0 - mix) * final1 + mix * final2
     raise NotImplementedError(schdl)
+
+def create_vip_buffer(datasource='ego4d', datapath=None, num_workers=10, doaug="none"):
+    return VIPBuffer(datasource, datapath, num_workers, doaug) if datasource != "franka-kitchen" else StateVIPBuffer(datasource, datapath)

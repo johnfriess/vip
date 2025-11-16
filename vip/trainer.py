@@ -22,7 +22,7 @@ class Trainer():
     def __init__(self, eval_freq):
         self.eval_freq = eval_freq
 
-    def update(self, model, batch, step, eval=False):
+    def update(self, model, batch, step, eval=False, datasource='ego4d'):
         t0 = time.time()
         metrics = dict()
         if eval:
@@ -32,17 +32,22 @@ class Trainer():
 
         t1 = time.time()
         ## Batch
-        b_im, b_reward = batch
+        b_f, b_reward = batch
         t2 = time.time()
 
         ## Encode Start and End Frames
-        bs = b_im.shape[0]
-        img_stack_size = b_im.shape[1]
-        H = b_im.shape[-2]
-        W = b_im.shape[-1]
-        b_im_r = b_im.reshape(bs*img_stack_size, 3, H, W)
-        alles = model(b_im_r)
-        alle = alles.reshape(bs, img_stack_size, -1)
+        bs = b_f.shape[0]
+        stack_size = b_f.shape[1]
+        if datasource != "franka-kitchen":
+            H = b_f.shape[-2]
+            W = b_f.shape[-1]
+            b_im_r = b_f.reshape(bs*stack_size, 3, H, W)
+            alles = model(b_im_r)
+        else:
+            state_dim = b_f.shape[-1]
+            b_st = b_f.reshape(bs*stack_size, state_dim)
+            alles = model(b_st)
+        alle = alles.reshape(bs, stack_size, -1)
         e0 = alle[:, 0] # initial, o_0
         eg = alle[:, 1] # final, o_g
         es0_vip = alle[:, 2] # o_t
