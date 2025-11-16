@@ -23,12 +23,12 @@ wandbuser:
 wandbproject: 
 
 # data
-dataset:
+dataset: franka-kitchen
 datapath: 
 doaug: "none"
 
 agent:
-  _target_: vip.VIP
+  _target_: vip.StateVIP
   device: ${device}
   lr: 1e-4
   hidden_dim: 2
