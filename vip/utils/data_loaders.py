@@ -128,6 +128,7 @@ class VIPBuffer(IterableDataset):
 
 class StateVIPBuffer(IterableDataset):
     def __init__(self, datasource="franka-kitchen", env_name="kitchen-complete-v0"):
+        print(datasource, env_name)
         self.gym = gym.make(env_name)
         self.dataset = self.gym.get_dataset()
         self.obs = self.dataset["observations"]

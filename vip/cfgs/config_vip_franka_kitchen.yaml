@@ -8,7 +8,7 @@ save_snapshot: false
 load_snap: ""
 
 # replay buffer
-num_workers: 10
+num_workers: 0
 batch_size: 32 
 train_steps: 10001
 eval_freq: 1000
@@ -28,7 +28,7 @@ datapath:
 doaug: "none"
 
 agent:
-  _target_: vip.StateVIP
+  _target_: vip.models.model_vip.StateVIP
   device: ${device}
   lr: 1e-4
   hidden_dim: 2
