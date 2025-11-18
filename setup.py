@@ -37,8 +37,12 @@ setup(
     'scikit-learn',
     'scikit-video',
     'transforms3d',
-    'moviepy',
+    'moviepy==1.0.3',
     'termcolor',
-    'wandb' 
+    'wandb',
+    'gym',
+    'd4rl',
+    "mujoco<=3.1.6",
+    "dm_control<=1.0.20"
     ]
 )

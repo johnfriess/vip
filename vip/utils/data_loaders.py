@@ -127,12 +127,13 @@ class VIPBuffer(IterableDataset):
             yield self._sample()
 
 class StateVIPBuffer(IterableDataset):
-    def __init__(self, datasource="franka-kitchen", env_name="kitchen-complete-v0"):
-        print(datasource, env_name)
-        self.gym = gym.make(env_name)
+    def __init__(self, datasource="kitchen-complete-v0"):
+        self.gym = gym.make(datasource)
         self.dataset = self.gym.get_dataset()
         self.obs = self.dataset["observations"]
         self.episodes = self._get_episodes()
+        print(self.obs.shape)
+        print(self.dataset["terminals"].shape)
 
     def _get_episodes(self):
         terminals = self.dataset["terminals"]

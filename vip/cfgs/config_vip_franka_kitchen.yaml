@@ -23,7 +23,7 @@ wandbuser:
 wandbproject: 
 
 # data
-dataset: franka-kitchen
+dataset: kitchen-complete-v0
 datapath: 
 doaug: "none"
 

@@ -38,7 +38,7 @@ class Trainer():
         ## Encode Start and End Frames
         bs = b_f.shape[0]
         stack_size = b_f.shape[1]
-        if datasource != "franka-kitchen":
+        if datasource not in ["kitchen-complete-v0", "kitchen-partial-v0", "kitchen-mixed-v0"]:
             H = b_f.shape[-2]
             W = b_f.shape[-1]
             b_im_r = b_f.reshape(bs*stack_size, 3, H, W)
@@ -98,7 +98,7 @@ class Trainer():
             model.module.encoder_opt.zero_grad()
             full_loss.backward()
             model.module.encoder_opt.step()
-        t5 = time.time()    
+        t5 = time.time()
 
         st = f"Load time {t1-t0}, Batch time {t2-t1}, Encode and LP time {t3-t2}, VIP time {t4-t3}, Backprop time {t5-t4}"
         return metrics,st

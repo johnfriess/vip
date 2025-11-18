@@ -165,4 +165,7 @@ def schedule(schdl, step):
     raise NotImplementedError(schdl)
 
 def create_vip_buffer(datasource='ego4d', datapath=None, num_workers=10, doaug="none"):
-    return VIPBuffer(datasource, datapath, num_workers, doaug) if datasource != "franka-kitchen" else StateVIPBuffer(datasource)
+    if datasource not in ["kitchen-complete-v0", "kitchen-partial-v0", "kitchen-mixed-v0"]:
+        return VIPBuffer(datasource, datapath, num_workers, doaug)
+    else:
+        return StateVIPBuffer(datasource)
