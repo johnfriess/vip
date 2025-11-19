@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from omegaconf import OmegaConf
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
-from vip.utils.data_loaders import VIPBuffer, StateVIPBuffer
+from vip.utils.data_loaders import VIPBuffer, StateVIPBuffer, StateIQLBuffer
 
 STATE_DATASETS = ["kitchen-complete-v0", "kitchen-partial-v0", "kitchen-mixed-v0"]
 
@@ -173,18 +173,24 @@ def create_vip_buffer(datasource='ego4d', datapath=None, num_workers=10, doaug="
         return StateVIPBuffer(datasource)
 
 def visualize_trajectory(model, datasource, buffer, device):
-    if datasource not in STATE_DATASETS or not isinstance(buffer, StateVIPBuffer):
+    if datasource not in STATE_DATASETS: 
         return
     
     traj = buffer.get_trajectory().to(device)
     with torch.no_grad():
-        etraj = model(traj)
-        eg = etraj[-1]
-        sim = model.module.sim(etraj, eg)
+        if isinstance(buffer, StateVIPBuffer):
+            etraj = model(traj)
+            eg = etraj[-1]
+            values = model.module.sim(etraj, eg).cpu()
+            model_type = "VIP"
+        elif isinstance(buffer, StateIQLBuffer):
+            values = model.module.v_value(traj).cpu()
+            model_type = "IQL"
+    
     plt.figure()
-    plt.plot(sim.cpu())
+    plt.plot(values)
     plt.xlabel("Frame")
-    plt.ylabel("V(s_t, g)")
-    plt.title(f"VIP along Expert Trajectory ({datasource})")
-    plt.savefig("trajectory_visualization.png")
+    plt.ylabel(f"{model_type} Value")
+    plt.title(f"{model_type} Value along Expert Trajectory ({datasource})")
+    plt.savefig(f"{model_type.lower()}_trajectory_visualization.png")
     plt.close()

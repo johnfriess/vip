@@ -179,3 +179,49 @@ class StateVIPBuffer(IterableDataset):
     def __iter__(self):
         while True:
             yield self._sample()
+
+class StateIQLBuffer(IterableDataset):
+    def __init__(self, datasource="kitchen-complete-v0"):
+        import gym
+        import d4rl
+        self.gym = gym.make(datasource)
+        self.dataset = self.gym.get_dataset()
+        self.obs = self.dataset["observations"]
+        self.next_obs = self.dataset["next_observations"]
+        self.actions = self.dataset["actions"]
+        self.rewards = self.dataset["rewards"]
+        self.terminals = self.dataset["terminals"]
+        self.episodes = self._get_episodes()
+
+    def _get_episodes(self):
+        episodes = []
+        start_ind = 0
+        # Create intervals for the start and end (inclusive) for each episode
+        for i, is_terminal in enumerate(self.terminals):
+            if is_terminal:
+                episodes.append((start_ind, i))
+                start_ind = i+1
+        if start_ind < len(terminals):
+            episodes.append((start_ind, len(self.terminals) - 1))
+        return episodes
+
+    def get_trajectory(self):
+        episode_ind = np.random.randint(0, len(self.episodes))
+        episode_start, episode_end = self.episodes[episode_ind]
+        return torch.tensor(self.obs[episode_start:episode_end+1])
+
+    def _sample(self):
+        idx = np.random.randint(0, len(self.obs))
+        s = torch.from_numpy(self.obs[idx])
+        a = torch.from_numpy(self.actions[idx])
+        r = torch.from_numpy(self.rewards[idx])
+        s_next = torch.from_numpy(self.next_obs[idx])
+
+        is_terminal = self.terminals[idx]
+        discount = torch.tensor(0.0 if is_terminal else 1.0)
+        
+        return (s, a, r, discount, s_next)
+
+    def __iter__(self):
+        while True:
+            yield self._sample()
