@@ -42,7 +42,5 @@ setup(
     'wandb',
     'gym',
     'd4rl',
-    "mujoco<=3.1.6",
-    "dm_control<=1.0.20"
     ]
 )

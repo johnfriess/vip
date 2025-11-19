@@ -123,10 +123,10 @@ class IQLTrainer():
 
         ## Update V network
         with torch.no_grad():
-            q1_next, q2_next = model.module.q_values(b_s_next, b_a)
-            q_min_next = torch.min(q1_next, q2_next).detach()
+            q1, q2 = model.module.q_values(b_s, b_a)
+            q_min = torch.min(q1, q2)
         v = model.module.v_value(b_s)
-        diff = q_min_next - v
+        diff = q_min - v
         weight = torch.where(diff < 0, 1 - model.module.expectile, model.module.expectile)
         v_loss = torch.mean(weight * diff.pow(2))
         if not eval:
@@ -152,10 +152,10 @@ class IQLTrainer():
 
         ## Update policy
         with torch.no_grad():
-            q1_pi, q2_pi = model.module.q_values(b_s, b_a)
-            q_pi = torch.min(q1_pi, q2_pi)
-            adv = q_pi - model.module.v_value(b_s)
-            weights = torch.exp(adv / model.module.beta).detach()
+            q1, q2 = model.module.q_values(b_s, b_a)
+            q_min = torch.min(q1, q2)
+            adv = q_min - model.module.v_value(b_s)
+            weights = torch.exp(adv / model.module.beta)
         dist = model.module.policy_dist(b_s)
         log_prob = dist.log_prob(b_a).sum(dim=-1)
         pi_loss = torch.mean(-(weights * log_prob))

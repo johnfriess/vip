@@ -20,11 +20,13 @@ class StateIQL(nn.Module):
         super().__init__()
         self.device = device
 
+        self.state_dim = state_dim
+        self.action_dim = action_dim
         self.hidden_dim = hidden_dim
+        self.size = size
         self.gamma = gamma
         self.expectile = expectile
         self.beta = beta
-        self.size = size
 
         layers = [nn.LayerNorm(state_dim), nn.Linear(state_dim, mlp_width), nn.ReLU()]
         for _ in range(size):
