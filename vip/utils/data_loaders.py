@@ -185,7 +185,7 @@ class StateIQLBuffer(IterableDataset):
         import gym
         import d4rl
         self.gym = gym.make(datasource)
-        self.dataset = self.gym.get_dataset()
+        self.dataset = d4rl.qlearning_dataset(self.gym)
         self.obs = self.dataset["observations"]
         self.next_obs = self.dataset["next_observations"]
         self.actions = self.dataset["actions"]
@@ -201,7 +201,7 @@ class StateIQLBuffer(IterableDataset):
             if is_terminal:
                 episodes.append((start_ind, i))
                 start_ind = i+1
-        if start_ind < len(terminals):
+        if start_ind < len(self.terminals):
             episodes.append((start_ind, len(self.terminals) - 1))
         return episodes
 
@@ -214,7 +214,7 @@ class StateIQLBuffer(IterableDataset):
         idx = np.random.randint(0, len(self.obs))
         s = torch.from_numpy(self.obs[idx])
         a = torch.from_numpy(self.actions[idx])
-        r = torch.from_numpy(self.rewards[idx])
+        r = torch.tensor(self.rewards[idx])
         s_next = torch.from_numpy(self.next_obs[idx])
 
         is_terminal = self.terminals[idx]
