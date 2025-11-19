@@ -90,7 +90,7 @@ class VIP(nn.Module):
         return d
     
 class StateVIP(nn.Module):
-    def __init__(self, device="cuda", lr=1e-4, state_dim=60, hidden_dim=256, size=2, mlp_width=256, l2weight=1.0, l1weight=1.0, gamma=0.98, num_negatives=0):
+    def __init__(self, device="cuda", lr=1e-4, state_dim=60, hidden_dim=256, size=1, mlp_width=256, l2weight=1.0, l1weight=1.0, gamma=0.98, num_negatives=0):
         super().__init__()
         self.device = device
         self.l2weight = l2weight

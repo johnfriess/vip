@@ -16,7 +16,7 @@ from torchvision.utils import save_image
 import torchvision.transforms as T
 
 class StateIQL(nn.Module):
-    def __init__(self, device="cuda", lr=1e-4, state_dim=60, action_dim=9, hidden_dim=256, size=2, mlp_width=256, gamma=0.98, expectile=0.7, beta=3.0):
+    def __init__(self, device="cuda", lr=1e-4, state_dim=60, action_dim=9, hidden_dim=256, size=1, mlp_width=256, gamma=0.98, expectile=0.7, beta=3.0):
         super().__init__()
         self.device = device
 

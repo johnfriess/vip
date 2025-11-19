@@ -30,6 +30,9 @@ agent:
   device: ${device}
   lr: 1e-4
   state_dim: 60
+  action_dim: 9
   hidden_dim: 256
   size: 1
   mlp_width: 256
+  expectile: 0.7
+  beta: 3.0
