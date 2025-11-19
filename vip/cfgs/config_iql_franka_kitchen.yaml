@@ -36,3 +36,4 @@ agent:
   mlp_width: 256
   expectile: 0.7
   beta: 3.0
+  max_adv: 100.0

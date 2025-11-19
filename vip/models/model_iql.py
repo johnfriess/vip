@@ -16,7 +16,7 @@ from torchvision.utils import save_image
 import torchvision.transforms as T
 
 class StateIQL(nn.Module):
-    def __init__(self, device="cuda", lr=1e-4, state_dim=60, action_dim=9, hidden_dim=256, size=1, mlp_width=256, gamma=0.98, expectile=0.7, beta=3.0):
+    def __init__(self, device="cuda", lr=1e-4, state_dim=60, action_dim=9, hidden_dim=256, size=1, mlp_width=256, gamma=0.98, expectile=0.7, beta=3.0, max_adv=100.0):
         super().__init__()
         self.device = device
 
@@ -27,6 +27,7 @@ class StateIQL(nn.Module):
         self.gamma = gamma
         self.expectile = expectile
         self.beta = beta
+        self.max_adv = max_adv
 
         layers = [nn.LayerNorm(state_dim), nn.Linear(state_dim, mlp_width), nn.ReLU()]
         for _ in range(size):
@@ -70,7 +71,9 @@ class StateIQL(nn.Module):
             list(self.encoder.parameters()) + list(self.q1.parameters()) + list(self.q2.parameters()),
             lr=lr,
         )
-        self.v_optimizer = torch.optim.Adam(self.v.parameters(), lr=lr)
+        self.v_optimizer = torch.optim.Adam(
+            list(self.encoder.parameters()) + list(self.v.parameters()),
+            lr=lr)
         self.pi_optimizer = torch.optim.Adam(
             list(self.encoder.parameters()) + list(self.policy_mean.parameters()) + [self.log_std],
             lr=lr,

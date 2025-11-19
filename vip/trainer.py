@@ -155,7 +155,7 @@ class IQLTrainer():
             q1, q2 = model.module.q_values(b_s, b_a)
             q_min = torch.min(q1, q2)
             adv = q_min - model.module.v_value(b_s)
-            weights = torch.exp(adv / model.module.beta)
+            weights = torch.clamp(torch.exp(model.module.beta * adv), max=model.module.max_adv)
         dist = model.module.policy_dist(b_s)
         log_prob = dist.log_prob(b_a).sum(dim=-1)
         pi_loss = torch.mean(-(weights * log_prob))
