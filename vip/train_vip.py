@@ -16,7 +16,6 @@ import numpy as np
 import torch
 from vip.trainer import Trainer
 from vip.utils import utils
-from vip.utils.data_loaders import VIPBuffer
 from vip.utils.logger import Logger
 import time
 
@@ -41,14 +40,14 @@ class Workspace:
             self.setup()
 
         print("Creating Dataloader")
-        train_iterable = utils.create_vip_buffer(datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=self.cfg.doaug)
-        val_iterable = utils.create_vip_buffer(datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=0)
+        self.train_iterable = utils.create_vip_buffer(datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=self.cfg.doaug)
+        self.val_iterable = utils.create_vip_buffer(datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=0)
 
-        self.train_loader = iter(torch.utils.data.DataLoader(train_iterable,
+        self.train_loader = iter(torch.utils.data.DataLoader(self.train_iterable,
                                          batch_size=self.cfg.batch_size,
                                          num_workers=self.cfg.num_workers,
                                          pin_memory=True))
-        self.val_loader = iter(torch.utils.data.DataLoader(val_iterable,
+        self.val_loader = iter(torch.utils.data.DataLoader(self.val_iterable,
                                          batch_size=self.cfg.batch_size,
                                          num_workers=self.cfg.num_workers,
                                          pin_memory=True))
@@ -108,6 +107,9 @@ class Workspace:
 
                     self.save_snapshot()
             self._global_step += 1
+        
+        print("Visualizing Trajectory")
+        utils.visualize_trajectory(self.model, self.cfg.dataset, self.val_iterable, self.device)
 
     def save_snapshot(self):
         snapshot = self.work_dir / f'snapshot_{self.global_step}.pt'

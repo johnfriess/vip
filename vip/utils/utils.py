@@ -11,11 +11,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 from omegaconf import OmegaConf
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
 from vip.utils.data_loaders import VIPBuffer, StateVIPBuffer
 
+STATE_DATASETS = ["kitchen-complete-v0", "kitchen-partial-v0", "kitchen-mixed-v0"]
 
 class eval_mode:
     def __init__(self, *models):
@@ -165,7 +167,24 @@ def schedule(schdl, step):
     raise NotImplementedError(schdl)
 
 def create_vip_buffer(datasource='ego4d', datapath=None, num_workers=10, doaug="none"):
-    if datasource not in ["kitchen-complete-v0", "kitchen-partial-v0", "kitchen-mixed-v0"]:
+    if datasource not in STATE_DATASETS:
         return VIPBuffer(datasource, datapath, num_workers, doaug)
     else:
         return StateVIPBuffer(datasource)
+
+def visualize_trajectory(model, datasource, buffer, device):
+    if datasource not in STATE_DATASETS or not isinstance(buffer, StateVIPBuffer):
+        return
+    
+    traj = buffer.get_trajectory().to(device)
+    with torch.no_grad():
+        etraj = model(traj)
+        eg = etraj[-1]
+        sim = model.module.sim(etraj, eg)
+    plt.figure()
+    plt.plot(sim.cpu())
+    plt.xlabel("Frame")
+    plt.ylabel("V(s_t, g)")
+    plt.title(f"VIP along Expert Trajectory ({datasource})")
+    plt.savefig("trajectory_visualization.png")
+    plt.close()

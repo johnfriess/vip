@@ -26,8 +26,6 @@ import pickle
 from torchvision.utils import save_image
 import json
 import random
-import gym
-import d4rl
 
 
 def get_ind(vid, index, ds="ego4d"):
@@ -128,12 +126,12 @@ class VIPBuffer(IterableDataset):
 
 class StateVIPBuffer(IterableDataset):
     def __init__(self, datasource="kitchen-complete-v0"):
+        import gym
+        import d4rl
         self.gym = gym.make(datasource)
         self.dataset = self.gym.get_dataset()
         self.obs = self.dataset["observations"]
         self.episodes = self._get_episodes()
-        print(self.obs.shape)
-        print(self.dataset["terminals"].shape)
 
     def _get_episodes(self):
         terminals = self.dataset["terminals"]
@@ -147,6 +145,11 @@ class StateVIPBuffer(IterableDataset):
         if start_ind < len(terminals):
             episodes.append((start_ind, len(terminals) - 1))
         return episodes
+
+    def get_trajectory(self):
+        episode_ind = np.random.randint(0, len(self.episodes))
+        episode_start, episode_end = self.episodes[episode_ind]
+        return torch.tensor(self.obs[episode_start:episode_end+1])
 
     def _sample(self):
         episode_ind = np.random.randint(0, len(self.episodes))

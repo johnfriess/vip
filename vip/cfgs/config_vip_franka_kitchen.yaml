@@ -10,7 +10,7 @@ load_snap: ""
 # replay buffer
 num_workers: 0
 batch_size: 32 
-train_steps: 10001
+train_steps: 8001
 eval_freq: 1000
 
 # misc
@@ -31,8 +31,10 @@ agent:
   _target_: vip.models.model_vip.StateVIP
   device: ${device}
   lr: 1e-4
-  hidden_dim: 2
-  size: 34
+  state_dim: 60
+  hidden_dim: 256
+  size: 1
+  mlp_width: 256
   l2weight: 0.0
   l1weight: 0.0
   num_negatives: 0
