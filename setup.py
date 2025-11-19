@@ -37,7 +37,7 @@ setup(
     'scikit-learn',
     'scikit-video',
     'transforms3d',
-    'moviepy==1.0.3',
+    'moviepy',
     'termcolor',
     'wandb',
     'gym',
