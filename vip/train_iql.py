@@ -89,9 +89,9 @@ class Workspace:
         while train_until_step(self.global_step):
             ## Sample Batch
             t0 = time.time()
-            b_s, b_a, b_r, b_discount, b_s_next = next(self.train_loader)
+            batch_s, batch_a, batch_r, batch_discounts, batch_s_next, batch_g = next(self.train_loader)
             t1 = time.time()
-            metrics, st = trainer.update(self.model, (b_s.cuda(), b_a.cuda(), b_r.cuda(), b_discount.cuda(), b_s_next.cuda()), self.global_step, datasource=self.cfg.dataset)
+            metrics, st = trainer.update(self.model, (batch_s, batch_a, batch_r, batch_discounts, batch_s_next, batch_g), self.global_step, datasource=self.cfg.dataset)
             t2 = time.time()
             self.logger.log_metrics(metrics, self.global_frame, ty='train')
 

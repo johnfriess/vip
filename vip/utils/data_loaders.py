@@ -187,9 +187,7 @@ class StateIQLBuffer(IterableDataset):
         self.gym = gym.make(datasource)
         self.dataset = d4rl.qlearning_dataset(self.gym)
         self.obs = self.dataset["observations"]
-        self.next_obs = self.dataset["next_observations"]
         self.actions = self.dataset["actions"]
-        self.rewards = self.dataset["rewards"]
         self.terminals = self.dataset["terminals"]
         self.episodes = self._get_episodes()
 
@@ -221,6 +219,33 @@ class StateIQLBuffer(IterableDataset):
         discount = torch.tensor(0.0 if is_terminal else 1.0)
         
         return (s, a, r, discount, s_next)
+
+    def _sample(self):
+        episode_ind = np.random.randint(0, len(self.episodes))
+        episode_start, episode_end = self.episodes[episode_ind]
+        # Ensure there are at least 3 states in the episode
+        if episode_end - episode_start < 2:
+            return self._sample()
+
+        # Sample (o_t, o_k, o_k+1, o_T) for VIP training
+        start_ind = np.random.randint(episode_start, episode_end-1)
+        end_ind = np.random.randint(start_ind+1, episode_end+1)
+
+        s0_ind_vip = np.random.randint(start_ind, end_ind)
+        s1_ind_vip = min(s0_ind_vip+1, end_ind)
+
+        g = self.obs[end_ind]
+        s = self.obs[s0_ind_vip]
+        s_next = self.obs[s1_ind_vip]
+
+        a = self.actions[s0_ind_vip]
+        discount = 0.0 if s0_ind_vip == end_ind else 1.0
+
+        # Self-supervised reward (this is always -1)
+        r = float(s0_ind_vip == end_ind) - 1
+
+        return (s, a, r, discount, s_next, g)
+
 
     def __iter__(self):
         while True:

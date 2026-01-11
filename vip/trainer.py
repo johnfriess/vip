@@ -118,7 +118,7 @@ class IQLTrainer():
 
         t1 = time.time()
         ## Batch
-        b_s, b_a, b_r, b_discount, b_s_next = batch
+        b_s, b_a, b_r, b_discount, b_s_next, b_g = batch
         t2 = time.time()
 
         ## Update V network
