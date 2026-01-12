@@ -219,7 +219,7 @@ class StateIQLBuffer(IterableDataset):
         if episode_end - episode_start < 1:
             return self._sample()
 
-        # Sample (o_k, o_k+1, o_T) for VIP training
+        # Sample (o_t, o_t+1, o_T) for VIP training
         t = np.random.randint(episode_start, episode_end)
         t_g = np.random.randint(t+1, episode_end+1)
 
@@ -234,8 +234,8 @@ class StateIQLBuffer(IterableDataset):
         r = torch.tensor(0.0 if reached else -1.0, dtype=torch.float32)
         
         # Represent current state and goal state as one input state
-        ob = torch.cat([s, g])
-        ob_next = torch.cat([s_next, g])
+        ob = torch.cat([s, g], dim=-1)
+        ob_next = torch.cat([s_next, g], dim=-1)
         return (ob, a, r, discount, ob_next)
 
     def __iter__(self):
