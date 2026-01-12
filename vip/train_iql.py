@@ -91,7 +91,7 @@ class Workspace:
             t0 = time.time()
             batch_s, batch_a, batch_r, batch_discounts, batch_s_next, batch_g = next(self.train_loader)
             t1 = time.time()
-            metrics, st = trainer.update(self.model, (batch_s, batch_a, batch_r, batch_discounts, batch_s_next, batch_g), self.global_step, datasource=self.cfg.dataset)
+            metrics, st = trainer.update(self.model, (batch_s.cuda(), batch_a, batch_r, batch_discounts, batch_s_next.cuda()), self.global_step, datasource=self.cfg.dataset)
             t2 = time.time()
             self.logger.log_metrics(metrics, self.global_frame, ty='train')
 

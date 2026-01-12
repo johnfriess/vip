@@ -216,20 +216,19 @@ class StateIQLBuffer(IterableDataset):
         if episode_end - episode_start < 1:
             return self._sample()
 
-        # Sample (o_t, o_k, o_k+1, o_T) for VIP training
-        t = np.random.randint(episode_start, episode_end+1)
-        t_g = np.random.randint(t, episode_end+1)
+        # Sample (o_k, o_k+1, o_T) for VIP training
+        t = np.random.randint(episode_start, episode_end)
+        t_g = np.random.randint(t+1, episode_end+1)
 
         g = self.obs[t_g]
         s = self.obs[t]
         s_next = self.next_obs[t]
-        a = torch.from_numpy(self.actions[t])
+        a = self.actions[t]
 
+        reached = (t + 1 == t_g)
         is_terminal = self.terminals[t]
-        discount = 0.0 if is_terminal else 1.0
-
-        # Self-supervised reward (this is always -1)
-        r = float(t == t_g) - 1
+        discount = 0.0 if is_terminal or reached else 1.0
+        r = 0.0 if reached else -1.0
         
         g = torch.from_numpy(g)
         s = torch.from_numpy(s)
