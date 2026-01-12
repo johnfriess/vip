@@ -207,8 +207,11 @@ class StateIQLBuffer(IterableDataset):
     def get_trajectory(self):
         episode_ind = np.random.randint(0, len(self.episodes))
         episode_start, episode_end = self.episodes[episode_ind]
-        return torch.tensor(self.obs[episode_start:episode_end+1])
-
+        traj = torch.from_numpy(self.obs[episode_start:episode_end+1])
+        g = traj[-1] # (D,)
+        g_rep = g.unsqueeze(0).expand(traj.shape[0], -1)  # (T, D)
+        return torch.cat([traj, g_rep], dim=-1)
+        
     def _sample(self):
         episode_ind = np.random.randint(0, len(self.episodes))
         episode_start, episode_end = self.episodes[episode_ind]
@@ -220,24 +223,20 @@ class StateIQLBuffer(IterableDataset):
         t = np.random.randint(episode_start, episode_end)
         t_g = np.random.randint(t+1, episode_end+1)
 
-        g = self.obs[t_g]
-        s = self.obs[t]
-        s_next = self.next_obs[t]
-        a = self.actions[t]
+        g = torch.from_numpy(self.obs[t_g])
+        s = torch.from_numpy(self.obs[t])
+        s_next = torch.from_numpy(self.next_obs[t])
+        a = torch.from_numpy(self.actions[t])
 
-        reached = (t + 1 == t_g)
+        reached = t+1 == t_g
         is_terminal = self.terminals[t]
-        discount = 0.0 if is_terminal or reached else 1.0
-        r = 0.0 if reached else -1.0
+        discount = torch.tensor(0.0 if is_terminal or reached else 1.0, dtype=torch.float32)
+        r = torch.tensor(0.0 if reached else -1.0, dtype=torch.float32)
         
-        g = torch.from_numpy(g)
-        s = torch.from_numpy(s)
-        s_next = torch.from_numpy(s_next)
-
-        ob = torch.cat([s, g], dim=-1)
-        ob_next = torch.cat([s_next, g], dim=-1)
+        # Represent current state and goal state as one input state
+        ob = torch.cat([s, g])
+        ob_next = torch.cat([s_next, g])
         return (ob, a, r, discount, ob_next)
-
 
     def __iter__(self):
         while True:

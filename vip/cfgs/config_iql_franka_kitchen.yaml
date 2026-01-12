@@ -29,7 +29,7 @@ agent:
   _target_: vip.models.model_iql.StateIQL
   device: ${device}
   lr: 1e-4
-  state_dim: 60
+  state_dim: 120
   action_dim: 9
   hidden_dim: 256
   size: 1
