@@ -14,7 +14,7 @@ train_steps: 8001
 eval_freq: 1000
 
 # misc
-seed: 1
+seed: 2
 device: cuda
 
 # experiment
