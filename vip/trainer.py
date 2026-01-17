@@ -15,6 +15,7 @@ import time
 import copy
 import torchvision.transforms as T
 from vip.utils.utils import STATE_DATASETS
+from vip.models.model_derail import StateEuclideanDERAIL, StateMultiLinearDERAIL
 
 epsilon = 1e-8
 def do_nothing(x): return x
@@ -167,4 +168,108 @@ class IQLTrainer():
         t5 = time.time()
 
         st = f"Load time {t1-t0}, Batch time {t2-t1}, Q time {t3-t2}, V time {t4-t3}, Policy time {t5-t4}"
+        return metrics,st
+
+
+class DERAILTrainer():
+    def __init__(self, eval_freq):
+        self.eval_freq = eval_freq
+
+    def _orthogonalize(g_s_next, g_s):
+        dot_nc, dot_cc = 0.0, 0.0
+        for gn, gc in zip(g_s_next, g_s):
+            dot_nc += (gn * gc).sum()
+            dot_cc += (gc * gc).sum()
+        coef = dot_nc / (dot_cc + epsilon)
+
+        out = []
+        for gn, gc in zip(g_s_next, g_s):
+            out.append(gn - coef * gc)
+        return out
+    
+    def _pearson_divergence(r, gamma, V_s_next, V_s):
+        delta = r + gamma * V_s_next - V_s
+        clamped_delta = torch.maximum(delta/2 + 1, 0)
+        conjugate_term = clamped_delta * delta - (clamped_delta - 1).pow(2)
+        return conjugate_term
+
+    def update(self, model, batch, step, eval=False, datasource='ego4d'):
+        t0 = time.time()
+        metrics = dict()
+        if eval:
+            model.eval()
+        else:
+            model.train()
+
+        t1 = time.time()
+        ## Batch
+        b_f, b_reward = batch
+        t2 = time.time()
+
+        bs, stack_size, state_dim = b_f.shape
+        full_loss = 0
+        
+
+        ## DERAIL Loss
+        if isinstance(model.module, StateEuclideanDERAIL): # double check this -------
+            b_st = b_f.reshape(bs*stack_size, state_dim)
+            alles = model(b_st)
+
+            alle = alles.reshape(bs, stack_size, state_dim)
+            e0 = alle[:, 0] # initial, o_0
+            eg = alle[:, 1] # final, o_g
+            es0_derail = alle[:, 2] # o_t
+            es1_derail = alle[:, 3] # o_t+1
+
+            t3 = time.time()
+
+            V_0 = model.module.sim(e0, eg) # -||phi(s) - phi(g)||_2
+            r =  b_reward.to(V_0.device) # R(s;g) = (s==g) - 1 
+            V_s = model.module.sim(es0_derail, eg)
+            V_s_next = model.module.sim(es1_derail, eg)
+        elif isinstance(model.module, StateMultiLinearDERAIL):
+            b_0 = b_f[:, 0] # initial, o_0
+            b_g = b_f[:, 1] # final, o_g
+            b_s0_derail = b_f[:, 2] # o_t
+            b_s1_derail = b_f[:, 3] # o_t+1
+
+            h1_0, h2_0, h3_0 = model(b_0, b_g)
+            h1_s0_derail, h2_s0_derail, h3_s0_derail = model(b_s0_derail, b_g)
+            h1_s1_derail, h2_s1_derail, h3_s1_derail = model(b_s1_derail, b_g)
+
+            t3 = time.time()
+
+            V_0 = model.module.value(h1_0, h2_0, h3_0)
+            r = b_reward.to(V_0.device)
+            V_s = model.module.value(h1_s0_derail, h2_s0_derail, h3_s0_derail)
+            V_s_next = model.module.value(h1_s1_derail, h2_s1_derail, h3_s1_derail)
+
+        init_loss = (1-model.module.conservative_weight) * (1-model.module.gamma) * V_0.mean()
+        V_loss = init_loss + model.module.conservative_weight * self._pearson_divergence(r, model.module.gamma, V_s_next, V_s).mean()
+        
+        metrics['derail_loss'] = V_loss.item()
+        full_loss += V_loss
+        metrics['full_loss'] = full_loss.item()
+        t4 = time.time()
+
+        if not eval:
+            model.module.encoder_opt.zero_grad()
+            
+            s_loss = self._pearson_divergence(r, model.module.gamma, V_s_next.detach(), V_s)
+            s_next_loss = self._pearson_divergence(r, model.module.gamma, V_s_next, V_s.detach())
+
+            params = [p for p in model.module.parameters() if p.requires_grad]
+            g_init = torch.autograd.grad(init_loss, params, retain_graph=True)
+            g_s = torch.autograd.grad(s_loss, params, retain_graph=True)
+            g_s_next = torch.autograd.grad(s_next_loss, params, retain_graph=True)
+
+            g_s_next = self._orthogonalize(g_s_next, g_s)
+
+            for p, gi, gc, gn in zip(params, g_init, g_s, g_s_next):
+                p.grad = gi + gc + gn
+
+            model.module.encoder_opt.step()
+        t5 = time.time()
+
+        st = f"Load time {t1-t0}, Batch time {t2-t1}, Encode and LP time {t3-t2}, DERAIL time {t4-t3}, Backprop time {t5-t4}"
         return metrics,st
