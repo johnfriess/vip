@@ -207,11 +207,9 @@ class DERAILTrainer():
         t2 = time.time()
 
         bs, stack_size, state_dim = b_f.shape
-        full_loss = 0
-        
 
         ## DERAIL Loss
-        if isinstance(model.module, StateEuclideanDERAIL): # double check this -------
+        if isinstance(model.module, StateEuclideanDERAIL):
             b_st = b_f.reshape(bs*stack_size, state_dim)
             alles = model(b_st)
 
@@ -246,10 +244,8 @@ class DERAILTrainer():
 
         init_loss = (1-model.module.conservative_weight) * (1-model.module.gamma) * V_0.mean()
         V_loss = init_loss + model.module.conservative_weight * self._pearson_divergence(r, model.module.gamma, V_s_next, V_s).mean()
-        
         metrics['derail_loss'] = V_loss.item()
-        full_loss += V_loss
-        metrics['full_loss'] = full_loss.item()
+        
         t4 = time.time()
 
         if not eval:

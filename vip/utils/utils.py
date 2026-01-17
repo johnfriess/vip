@@ -16,6 +16,7 @@ from omegaconf import OmegaConf
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
 from vip.utils.data_loaders import VIPBuffer, StateVIPBuffer, StateIQLBuffer
+from vip.trainer import StateMultiLinearDERAIL, StateEuclideanDERAIL
 
 STATE_DATASETS = ["kitchen-complete-v0", "kitchen-partial-v0", "kitchen-mixed-v0"]
 
@@ -179,10 +180,22 @@ def visualize_trajectory(model, datasource, buffer, device):
     traj = buffer.get_trajectory().to(device)
     with torch.no_grad():
         if isinstance(buffer, StateVIPBuffer):
-            etraj = model(traj)
-            eg = etraj[-1]
-            values = model.module.sim(etraj, eg).cpu()
-            model_type = "VIP"
+            if isinstance(model.module, StateMultiLinearDERAIL):
+                g = traj[-1]
+                g_rep = g.unsqueeze(0).expand(traj.shape[0], -1)
+                h1, h2, h3 = model(traj, g_rep)
+                values = model.module.value(h1, h2, h3).cpu()
+                model_type = "DERAIL"
+            elif isinstance(model.module, StateEuclideanDERAIL):
+                etraj = model(traj)
+                eg = etraj[-1]
+                values = model.module.sim(etraj, eg).cpu()
+                model_type = "DERAIL"
+            else:
+                etraj = model(traj)
+                eg = etraj[-1]
+                values = model.module.sim(etraj, eg).cpu()
+                model_type = "VIP"
         elif isinstance(buffer, StateIQLBuffer):
             values = model.module.v_value(traj).cpu()
             model_type = "IQL"
