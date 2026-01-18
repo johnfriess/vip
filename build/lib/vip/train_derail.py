@@ -130,7 +130,7 @@ class Workspace:
 
 @hydra.main(config_path='cfgs', config_name='config_vip')
 def main(cfg):
-    from train_derail import Workspace as W
+    from train_vip import Workspace as W
     root_dir = Path.cwd()
     workspace = W(cfg)
 

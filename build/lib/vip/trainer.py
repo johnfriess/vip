@@ -15,7 +15,7 @@ import time
 import copy
 import torchvision.transforms as T
 from vip.utils.utils import STATE_DATASETS
-from vip.models.model_derail import StateEuclideanDERAIL, StateMultilinearDERAIL
+from vip.models.model_derail import StateEuclideanDERAIL, StateMultiLinearDERAIL
 
 epsilon = 1e-8
 def do_nothing(x): return x
@@ -175,7 +175,7 @@ class DERAILTrainer():
     def __init__(self, eval_freq):
         self.eval_freq = eval_freq
 
-    def _orthogonalize(self, g_s_next, g_s):
+    def _orthogonalize(g_s_next, g_s):
         dot_nc, dot_cc = 0.0, 0.0
         for gn, gc in zip(g_s_next, g_s):
             dot_nc += (gn * gc).sum()
@@ -187,9 +187,9 @@ class DERAILTrainer():
             out.append(gn - coef * gc)
         return out
     
-    def _pearson_divergence(self, r, gamma, V_s_next, V_s):
+    def _pearson_divergence(r, gamma, V_s_next, V_s):
         delta = r + gamma * V_s_next - V_s
-        clamped_delta = torch.clamp(delta / 2 + 1, min=0.0)
+        clamped_delta = torch.maximum(delta/2 + 1, 0)
         conjugate_term = clamped_delta * delta - (clamped_delta - 1).pow(2)
         return conjugate_term
 
@@ -212,7 +212,8 @@ class DERAILTrainer():
         if isinstance(model.module, StateEuclideanDERAIL):
             b_st = b_f.reshape(bs*stack_size, state_dim)
             alles = model(b_st)
-            alle = alles.reshape(bs, stack_size, -1)
+
+            alle = alles.reshape(bs, stack_size, state_dim)
             e0 = alle[:, 0] # initial, o_0
             eg = alle[:, 1] # final, o_g
             es0_derail = alle[:, 2] # o_t
@@ -224,7 +225,7 @@ class DERAILTrainer():
             r =  b_reward.to(V_0.device) # R(s;g) = (s==g) - 1 
             V_s = model.module.sim(es0_derail, eg)
             V_s_next = model.module.sim(es1_derail, eg)
-        elif isinstance(model.module, StateMultilinearDERAIL):
+        elif isinstance(model.module, StateMultiLinearDERAIL):
             b_0 = b_f[:, 0] # initial, o_0
             b_g = b_f[:, 1] # final, o_g
             b_s0_derail = b_f[:, 2] # o_t
@@ -250,8 +251,8 @@ class DERAILTrainer():
         if not eval:
             model.module.encoder_opt.zero_grad()
             
-            s_loss = model.module.conservative_weight * self._pearson_divergence(r, model.module.gamma, V_s_next.detach(), V_s).mean()
-            s_next_loss = model.module.conservative_weight * self._pearson_divergence(r, model.module.gamma, V_s_next, V_s.detach()).mean()
+            s_loss = self._pearson_divergence(r, model.module.gamma, V_s_next.detach(), V_s)
+            s_next_loss = self._pearson_divergence(r, model.module.gamma, V_s_next, V_s.detach())
 
             params = [p for p in model.module.parameters() if p.requires_grad]
             g_init = torch.autograd.grad(init_loss, params, retain_graph=True)

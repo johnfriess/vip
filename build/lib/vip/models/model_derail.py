@@ -36,7 +36,7 @@ class StateEuclideanDERAIL(nn.Module):
         d = -torch.linalg.norm(tensor1 - tensor2, dim = -1)
         return d
 
-class StateMultilinearDERAIL(nn.Module):
+class StateMultiLinearDERAIL(nn.Module):
     def __init__(self, device="cuda", lr=1e-4, state_dim=60, hidden_dim=256, size=1, mlp_width=256, l2weight=1.0, l1weight=1.0, conservative_weight=0.9, gamma=0.98, num_negatives=0):
         super().__init__()
         self.device = device

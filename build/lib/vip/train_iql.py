@@ -14,10 +14,11 @@ from pathlib import Path
 import hydra
 import numpy as np
 import torch
-from vip.trainer import DERAILTrainer
+from vip.trainer import IQLTrainer
 from vip.utils import utils
 from vip.utils.logger import Logger
 import time
+from vip.utils.data_loaders import StateIQLBuffer
 
 torch.backends.cudnn.benchmark = True
 
@@ -40,8 +41,8 @@ class Workspace:
             self.setup()
 
         print("Creating Dataloader")
-        self.train_iterable = utils.create_vip_buffer(datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=self.cfg.doaug)
-        self.val_iterable = utils.create_vip_buffer(datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=0)
+        self.train_iterable = StateIQLBuffer(datasource=self.cfg.dataset)
+        self.val_iterable = StateIQLBuffer(datasource=self.cfg.dataset)
 
         self.train_loader = iter(torch.utils.data.DataLoader(self.train_iterable,
                                          batch_size=self.cfg.batch_size,
@@ -81,16 +82,16 @@ class Workspace:
         train_until_step = utils.Until(self.cfg.train_steps, 1)
         eval_freq = self.cfg.eval_freq
         eval_every_step = utils.Every(eval_freq, 1)
-        trainer = DERAILTrainer(eval_freq)
+        trainer = IQLTrainer(eval_freq)
 
         ## Training Loop
         print("Begin Training")
         while train_until_step(self.global_step):
             ## Sample Batch
             t0 = time.time()
-            batch_f, batch_rewards = next(self.train_loader)
+            batch_s, batch_a, batch_r, batch_discounts, batch_s_next = next(self.train_loader)
             t1 = time.time()
-            metrics, st = trainer.update(self.model, (batch_f.cuda(), batch_rewards), self.global_step, datasource=self.cfg.dataset)
+            metrics, st = trainer.update(self.model, (batch_s.cuda(), batch_a.cuda(), batch_r.cuda(), batch_discounts.cuda(), batch_s_next.cuda()), self.global_step, datasource=self.cfg.dataset)
             t2 = time.time()
             self.logger.log_metrics(metrics, self.global_frame, ty='train')
 
@@ -100,8 +101,8 @@ class Workspace:
                 
             if eval_every_step(self.global_step):
                 with torch.no_grad():
-                    batch_f, batch_rewards = next(self.val_loader)
-                    metrics, st = trainer.update(self.model, (batch_f.cuda(), batch_rewards), self.global_step, eval=True, datasource=self.cfg.dataset)
+                    b_s, b_a, b_r, b_discount, b_s_next = next(self.val_loader)
+                    metrics, st = trainer.update(self.model, (b_s.cuda(), b_a.cuda(), b_r.cuda(), b_discount.cuda(), b_s_next.cuda()), self.global_step, eval=True, datasource=self.cfg.dataset)
                     self.logger.log_metrics(metrics, self.global_frame, ty='eval')
                     print("EVAL", self.global_step, metrics)
 
@@ -128,9 +129,9 @@ class Workspace:
         except:
             print("No global step found")
 
-@hydra.main(config_path='cfgs', config_name='config_vip')
+@hydra.main(config_path='cfgs', config_name='config_iql')
 def main(cfg):
-    from train_derail import Workspace as W
+    from train_iql import Workspace as W
     root_dir = Path.cwd()
     workspace = W(cfg)
 

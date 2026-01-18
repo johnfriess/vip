@@ -21,6 +21,7 @@ setup(
     description='VIP: Towards Universal Visual Reward and Representation via Value-Implicit Pre-Training',
     long_description=read('README.md'),
     author='Jason Ma (Meta AI)',
+    python_requires=">=3.9,<3.10",
     install_requires=[
     'gdown==4.4.0', 
     'torch>=1.7.1',
@@ -29,7 +30,7 @@ setup(
     'hydra-core==1.1.1',
     'pillow==9.0.1',
     'opencv-python',
-    'matplotlib',
+    'matplotlib<3.6',
     'flatten_dict',
     'tabulate',
     'pandas',
@@ -40,7 +41,13 @@ setup(
     'moviepy',
     'termcolor',
     'wandb',
-    'gym',
-    'd4rl',
+    "gym==0.23.1",
+    "d4rl==1.1",
+    "dm-control==1.0.8",
+    "mujoco==2.3.7",
+    "pyparsing==2.4.7",
+    "Cython<3",
+    "mujoco-py==2.1.2.14",
+    "numpy==1.26.4"
     ]
 )

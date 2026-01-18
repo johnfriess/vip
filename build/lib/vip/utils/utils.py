@@ -16,7 +16,7 @@ from omegaconf import OmegaConf
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
 from vip.utils.data_loaders import VIPBuffer, StateVIPBuffer, StateIQLBuffer
-from vip.models.model_derail import StateMultilinearDERAIL, StateEuclideanDERAIL
+from vip.trainer import StateMultiLinearDERAIL, StateEuclideanDERAIL
 
 STATE_DATASETS = ["kitchen-complete-v0", "kitchen-partial-v0", "kitchen-mixed-v0"]
 
@@ -176,11 +176,11 @@ def create_vip_buffer(datasource='ego4d', datapath=None, num_workers=10, doaug="
 def visualize_trajectory(model, datasource, buffer, device):
     if datasource not in STATE_DATASETS: 
         return
-
+    
     traj = buffer.get_trajectory().to(device)
     with torch.no_grad():
         if isinstance(buffer, StateVIPBuffer):
-            if isinstance(model.module, StateMultilinearDERAIL):
+            if isinstance(model.module, StateMultiLinearDERAIL):
                 g = traj[-1]
                 g_rep = g.unsqueeze(0).expand(traj.shape[0], -1)
                 h1, h2, h3 = model(traj, g_rep)

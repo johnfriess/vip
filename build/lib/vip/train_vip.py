@@ -14,7 +14,7 @@ from pathlib import Path
 import hydra
 import numpy as np
 import torch
-from vip.trainer import DERAILTrainer
+from vip.trainer import Trainer
 from vip.utils import utils
 from vip.utils.logger import Logger
 import time
@@ -81,7 +81,7 @@ class Workspace:
         train_until_step = utils.Until(self.cfg.train_steps, 1)
         eval_freq = self.cfg.eval_freq
         eval_every_step = utils.Every(eval_freq, 1)
-        trainer = DERAILTrainer(eval_freq)
+        trainer = Trainer(eval_freq)
 
         ## Training Loop
         print("Begin Training")
@@ -130,7 +130,7 @@ class Workspace:
 
 @hydra.main(config_path='cfgs', config_name='config_vip')
 def main(cfg):
-    from train_derail import Workspace as W
+    from train_vip import Workspace as W
     root_dir = Path.cwd()
     workspace = W(cfg)
 
