@@ -116,14 +116,14 @@ class Workspace:
         snapshot = self.work_dir / f'snapshot_{self.global_step}.pt'
         global_snapshot =  self.work_dir / f'snapshot.pt'
         sdict = {}
-        sdict["vip"] = self.model.state_dict()
+        sdict["iql"] = self.model.state_dict()
         torch.save(sdict, snapshot)
         sdict["global_step"] = self._global_step
         torch.save(sdict, global_snapshot)
 
     def load_snapshot(self, snapshot_path):
         payload = torch.load(snapshot_path)
-        self.model.load_state_dict(payload['vip'])
+        self.model.load_state_dict(payload['iql'])
         try:
             self._global_step = payload['global_step']
         except:
