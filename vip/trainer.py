@@ -208,8 +208,8 @@ class DERAILTrainer():
         t1 = time.time()
         ## Batch
         b_f, b_reward = batch
-        b_f.cuda()
-        
+        b_f = b_f.cuda()
+
         t2 = time.time()
 
         bs, stack_size, state_dim = b_f.shape

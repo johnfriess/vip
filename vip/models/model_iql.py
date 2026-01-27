@@ -29,13 +29,19 @@ class StateIQL(nn.Module):
         self.beta = beta
         self.max_adv = max_adv
 
-        layers = [nn.LayerNorm(state_dim), nn.Linear(state_dim, mlp_width), nn.ReLU()]
-        for _ in range(size):
-            layers.append(nn.Linear(mlp_width, mlp_width))
-            layers.append(nn.ReLU())
-        layers.append(nn.Linear(mlp_width, hidden_dim))
+        # Helper to create encoder MLP
+        def make_encoder():
+            layers = [nn.LayerNorm(state_dim), nn.Linear(state_dim, mlp_width), nn.ReLU()]
+            for _ in range(size):
+                layers.append(nn.Linear(mlp_width, mlp_width))
+                layers.append(nn.ReLU())
+            layers.append(nn.Linear(mlp_width, hidden_dim))
+            return nn.Sequential(*layers)
 
-        self.encoder = nn.Sequential(*layers)
+        # Separate encoders for Q, V, and policy
+        self.q_encoder = make_encoder()
+        self.v_encoder = make_encoder()
+        self.pi_encoder = make_encoder()
 
         # Q networks: Q1(s, a), Q2(s, a)
         def make_q():
@@ -66,37 +72,37 @@ class StateIQL(nn.Module):
         )
         self.log_std = nn.Parameter(torch.zeros(action_dim))
 
-        ## Optimizers
+        ## Optimizers - each manages only its own parameters
         self.q_optimizer = torch.optim.Adam(
-            list(self.encoder.parameters()) + list(self.q1.parameters()) + list(self.q2.parameters()),
+            list(self.q_encoder.parameters()) + list(self.q1.parameters()) + list(self.q2.parameters()),
             lr=lr,
         )
         self.v_optimizer = torch.optim.Adam(
-            list(self.encoder.parameters()) + list(self.v.parameters()),
+            list(self.v_encoder.parameters()) + list(self.v.parameters()),
             lr=lr)
         self.pi_optimizer = torch.optim.Adam(
-            list(self.encoder.parameters()) + list(self.policy_mean.parameters()) + [self.log_std],
+            list(self.pi_encoder.parameters()) + list(self.policy_mean.parameters()) + [self.log_std],
             lr=lr,
         )
 
-    ## Forward Call (state --> representation)
+    ## Forward Call (state --> representation) - uses Q encoder by default
     def forward(self, obs):
-        h = self.encoder(obs)
+        h = self.q_encoder(obs)
         return h
 
     def q_values(self, s, a):
-        z = self.forward(s)
+        z = self.q_encoder(s)
         sa = torch.cat([z, a], dim=-1)
         q1 = self.q1(sa).squeeze(-1)
         q2 = self.q2(sa).squeeze(-1)
         return (q1, q2)
 
     def v_value(self, s):
-        z = self.forward(s)
+        z = self.v_encoder(s)
         return self.v(z).squeeze(-1)
 
     def policy_dist(self, s):
-        z = self.forward(s)
+        z = self.pi_encoder(s)
         mean = self.policy_mean(z)
         std = self.log_std.exp().expand_as(mean)
         return torch.distributions.Normal(mean, std)
