@@ -15,10 +15,9 @@ import matplotlib.pyplot as plt
 from omegaconf import OmegaConf
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
-from vip.utils.data_loaders import VIPBuffer, StateVIPBuffer, StateIQLBuffer
+from vip.utils.data_loaders import STATE_DATASETS, VIPBuffer, StateVIPBuffer, StateIQLBuffer
 from vip.models.model_derail import StateMultilinearDERAIL, StateEuclideanDERAIL
-
-STATE_DATASETS = ["kitchen-complete-v0", "kitchen-partial-v0", "kitchen-mixed-v0"]
+from vip.trainer import VIPTrainer, IQLTrainer, DERAILTrainer
 
 class eval_mode:
     def __init__(self, *models):
@@ -167,43 +166,52 @@ def schedule(schdl, step):
                 return (1.0 - mix) * final1 + mix * final2
     raise NotImplementedError(schdl)
 
-def create_vip_buffer(datasource='ego4d', datapath=None, num_workers=10, doaug="none"):
-    if datasource not in STATE_DATASETS:
-        return VIPBuffer(datasource, datapath, num_workers, doaug)
-    else:
+def create_buffer(model_type='vip', datasource='ego4d', datapath=None, num_workers=10, doaug="none"):
+    if model_type == 'vip':
+        if datasource not in STATE_DATASETS:
+            return VIPBuffer(datasource, datapath, num_workers, doaug)
+        else:
+            return StateVIPBuffer(datasource)
+    elif model_type == 'iql':
+        return StateIQLBuffer(datasource)
+    elif model_type == 'derail':
         return StateVIPBuffer(datasource)
 
-def visualize_trajectory(model, datasource, buffer, device):
+def create_trainer(model_type='vip', eval_freq=1000):
+    if model_type == 'vip':
+        return VIPTrainer(eval_freq)
+    elif model_type == 'iql':
+        return IQLTrainer(eval_freq)
+    elif model_type == 'derail':
+        return DERAILTrainer(eval_freq)
+
+def visualize_trajectory(model, model_type, datasource, buffer, device):
     if datasource not in STATE_DATASETS: 
         return
 
     traj = buffer.get_trajectory().to(device)
     with torch.no_grad():
-        if isinstance(buffer, StateVIPBuffer):
+        if model_type == 'vip':
+            etraj = model(traj)
+            eg = etraj[-1]
+            values = model.module.sim(etraj, eg).cpu()
+        elif model_type == 'iql':
+            values = model.module.v_value(traj).cpu()
+        elif model_type == "derail":
             if isinstance(model.module, StateMultilinearDERAIL):
                 g = traj[-1]
                 g_rep = g.unsqueeze(0).expand(traj.shape[0], -1)
                 h1, h2, h3 = model(traj, g_rep)
                 values = model.module.value(h1, h2, h3).cpu()
-                model_type = "DERAIL"
             elif isinstance(model.module, StateEuclideanDERAIL):
                 etraj = model(traj)
                 eg = etraj[-1]
                 values = model.module.sim(etraj, eg).cpu()
-                model_type = "DERAIL"
-            else:
-                etraj = model(traj)
-                eg = etraj[-1]
-                values = model.module.sim(etraj, eg).cpu()
-                model_type = "VIP"
-        elif isinstance(buffer, StateIQLBuffer):
-            values = model.module.v_value(traj).cpu()
-            model_type = "IQL"
-    
+
     plt.figure()
     plt.plot(values)
     plt.xlabel("Frame")
-    plt.ylabel(f"{model_type} Value")
-    plt.title(f"{model_type} Value along Expert Trajectory ({datasource})")
-    plt.savefig(f"{model_type.lower()}_trajectory_visualization.png")
+    plt.ylabel(f"{model_type.upper()} Value")
+    plt.title(f"{model_type.upper()} Value along Expert Trajectory ({datasource})")
+    plt.savefig(f"{model_type}_trajectory_visualization.png")
     plt.close()

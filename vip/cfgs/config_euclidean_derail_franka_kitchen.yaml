@@ -18,7 +18,8 @@ seed: 1
 device: cuda
 
 # experiment
-experiment: train_derail
+experiment: train_model
+model: derail
 wandbuser: 
 wandbproject: 
 

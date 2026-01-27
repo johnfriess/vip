@@ -14,13 +14,13 @@ from torchvision.utils import save_image
 import time
 import copy
 import torchvision.transforms as T
-from vip.utils.utils import STATE_DATASETS
+from vip.utils.data_loaders import STATE_DATASETS
 from vip.models.model_derail import StateEuclideanDERAIL, StateMultilinearDERAIL
 
 epsilon = 1e-8
 def do_nothing(x): return x
 
-class Trainer():
+class VIPTrainer():
     def __init__(self, eval_freq):
         self.eval_freq = eval_freq
 
@@ -35,6 +35,8 @@ class Trainer():
         t1 = time.time()
         ## Batch
         b_f, b_reward = batch
+        b_f = b_f.cuda()
+
         t2 = time.time()
 
         ## Encode Start and End Frames
@@ -120,6 +122,8 @@ class IQLTrainer():
         t1 = time.time()
         ## Batch
         b_s, b_a, b_r, b_discount, b_s_next = batch
+        b_s, b_a, b_r, b_discount, b_s_next = b_s.cuda(), b_a.cuda(), b_r.cuda(), b_discount.cuda(), b_s_next.cuda()
+
         t2 = time.time()
 
         ## Update V network
@@ -204,6 +208,8 @@ class DERAILTrainer():
         t1 = time.time()
         ## Batch
         b_f, b_reward = batch
+        b_f.cuda()
+        
         t2 = time.time()
 
         bs, stack_size, state_dim = b_f.shape

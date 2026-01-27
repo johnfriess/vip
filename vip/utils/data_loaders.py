@@ -27,6 +27,7 @@ from torchvision.utils import save_image
 import json
 import random
 
+STATE_DATASETS = ["kitchen-complete-v0", "kitchen-partial-v0", "kitchen-mixed-v0"]
 
 def get_ind(vid, index, ds="ego4d"):
     if ds == "ego4d":
@@ -231,7 +232,7 @@ class StateIQLBuffer(IterableDataset):
         reached = t+1 == t_g
         is_terminal = self.terminals[t]
         discount = torch.tensor(0.0 if is_terminal or reached else 1.0, dtype=torch.float32)
-        r = torch.tensor(0.0 if reached else -1.0, dtype=torch.float32)
+        r = torch.tensor(-1.0, dtype=torch.float32)
         
         # Represent current state and goal state as one input state
         ob = torch.cat([s, g], dim=-1)
