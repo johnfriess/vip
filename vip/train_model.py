@@ -14,6 +14,7 @@ from pathlib import Path
 import hydra
 import numpy as np
 import torch
+from omegaconf import OmegaConf
 from vip.utils import utils
 from vip.utils.logger import Logger
 import time
@@ -50,6 +51,27 @@ class Workspace:
                                          batch_size=self.cfg.batch_size,
                                          num_workers=self.cfg.num_workers,
                                          pin_memory=True))
+
+        ## Infer state dimensions from dataset
+        sample_batch = next(self.train_loader)
+
+        if self.cfg.model == 'iql':
+            ob, action = sample_batch[0], sample_batch[1]
+            state_dim = ob.shape[-1]
+            action_dim = action.shape[-1]
+        elif self.cfg.model in ['vip', 'derail']:
+            ob = sample_batch[0]
+            state_dim = ob.shape[-1]
+            action_dim = None
+
+        OmegaConf.set_struct(cfg.agent, False)
+        if state_dim is not None:
+            cfg.agent.state_dim = state_dim
+            print(f"Inferred state_dim from dataset: {state_dim}")
+        if action_dim is not None:
+            cfg.agent.action_dim = action_dim
+            print(f"Inferred action_dim from dataset: {action_dim}")
+        OmegaConf.set_struct(cfg.agent, True)
 
         ## Init Model
         print("Initializing Model")

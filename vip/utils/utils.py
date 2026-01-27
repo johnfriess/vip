@@ -167,15 +167,13 @@ def schedule(schdl, step):
     raise NotImplementedError(schdl)
 
 def create_buffer(model_type='vip', datasource='ego4d', datapath=None, num_workers=10, doaug="none"):
-    if model_type == 'vip':
+    if model_type in ['vip', 'derail']:
         if datasource not in STATE_DATASETS:
             return VIPBuffer(datasource, datapath, num_workers, doaug)
         else:
             return StateVIPBuffer(datasource)
     elif model_type == 'iql':
         return StateIQLBuffer(datasource)
-    elif model_type == 'derail':
-        return StateVIPBuffer(datasource)
 
 def create_trainer(model_type='vip', eval_freq=1000):
     if model_type == 'vip':
