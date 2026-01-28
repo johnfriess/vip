@@ -67,10 +67,8 @@ class Workspace:
         OmegaConf.set_struct(cfg.agent, False)
         if state_dim is not None:
             cfg.agent.state_dim = state_dim
-            print(f"Inferred state_dim from dataset: {state_dim}")
         if action_dim is not None:
             cfg.agent.action_dim = action_dim
-            print(f"Inferred action_dim from dataset: {action_dim}")
         OmegaConf.set_struct(cfg.agent, True)
 
         ## Init Model
