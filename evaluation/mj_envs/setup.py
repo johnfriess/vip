@@ -25,6 +25,6 @@ setup(
     url='https://github.com/vikashplus/mj_envs.git',
     author='Movement Control Lab, UW',
     install_requires=[
-        'click', 'gym==0.17', 'mujoco-py<2.1,>=2.0', 'termcolor', 'sk-video',
+        'click', 'gym==0.17', 'mujoco-py @ git+https://github.com/openai/mujoco-py@master', 'termcolor', 'sk-video',
     ],
 )

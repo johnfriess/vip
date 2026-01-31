@@ -74,6 +74,23 @@ def generate_frame(e, frame_size, camera_name):
     env_id = e.env_id
     if env_id.startswith('dmc'):
         frame = e.env.unwrapped.render(mode='rgb_array', width=frame_size[0], height=frame_size[1])
+    elif 'kitchen' in env_id.lower():
+        import mujoco
+
+        model = e.env.unwrapped.model
+        data = e.env.unwrapped.data
+
+        renderer = mujoco.Renderer(model, frame_size[1], frame_size[0])
+
+        # Create camera object with better view of robot workspace
+        cam = mujoco.MjvCamera()
+        cam.lookat[:] = [-0.2, 0.5, 1.8]
+        cam.distance = 2.8
+        cam.azimuth = 70
+        cam.elevation = -35 
+
+        renderer.update_scene(data, camera=cam)
+        frame = renderer.render()
     else:
         frame = e.env.unwrapped.sim.render(width=frame_size[0], height=frame_size[1],
                                             mode='offscreen', camera_name=camera_name, device_id=0)

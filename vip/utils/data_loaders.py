@@ -27,7 +27,11 @@ from torchvision.utils import save_image
 import json
 import random
 
-STATE_DATASETS = ["kitchen-complete-v0", "kitchen-partial-v0", "kitchen-mixed-v0"]
+STATE_DATASETS = [
+    "D4RL/kitchen/complete-v2",
+    "D4RL/kitchen/partial-v2",
+    "D4RL/kitchen/mixed-v2",
+]
 
 def get_ind(vid, index, ds="ego4d"):
     if ds == "ego4d":
@@ -126,55 +130,45 @@ class VIPBuffer(IterableDataset):
             yield self._sample()
 
 class StateVIPBuffer(IterableDataset):
-    def __init__(self, datasource="kitchen-complete-v0"):
-        import gym
-        import d4rl
-        self.gym = gym.make(datasource)
-        self.dataset = self.gym.get_dataset()
-        self.obs = self.dataset["observations"]
-        self.episodes = self._get_episodes()
+    def __init__(self, datasource="D4RL/kitchen/complete-v2"):
+        import minari
 
-    def _get_episodes(self):
-        terminals = self.dataset["terminals"]
-        episodes = []
-        start_ind = 0
-        # Create intervals for the start and end (inclusive) for each episode
-        for i, is_terminal in enumerate(terminals):
-            if is_terminal:
-                episodes.append((start_ind, i))
-                start_ind = i+1
-        if start_ind < len(terminals):
-            episodes.append((start_ind, len(terminals) - 1))
-        return episodes
+        dataset = minari.load_dataset(datasource, download=True)
+
+        # Store episode observations directly (list of numpy arrays)
+        # Each episode.observations['observation'] has shape (T+1, obs_dim)
+        # Minari kitchen obs is 59D (goals stored separately, not embedded)
+        self.episodes = [
+            ep.observations['observation']
+            for ep in dataset.iterate_episodes()
+            if len(ep.observations['observation']) > 2  # Need at least 3 states
+        ]
 
     def get_trajectory(self):
         episode_ind = np.random.randint(0, len(self.episodes))
-        episode_start, episode_end = self.episodes[episode_ind]
-        return torch.tensor(self.obs[episode_start:episode_end+1])
+        return torch.tensor(self.episodes[episode_ind], dtype=torch.float32)
 
     def _sample(self):
         episode_ind = np.random.randint(0, len(self.episodes))
-        episode_start, episode_end = self.episodes[episode_ind]
-        # Ensure there are at least 3 states in the episode
-        if episode_end - episode_start < 2:
-            return self._sample()
+        obs = self.episodes[episode_ind]  # (T+1, obs_dim)
+        episode_len = len(obs) - 1  # T transitions
 
         # Sample (o_t, o_k, o_k+1, o_T) for VIP training
-        start_ind = np.random.randint(episode_start, episode_end-1)
-        end_ind = np.random.randint(start_ind+1, episode_end+1)
+        start_ind = np.random.randint(0, episode_len - 1)
+        end_ind = np.random.randint(start_ind + 1, episode_len + 1)
 
         s0_ind_vip = np.random.randint(start_ind, end_ind)
-        s1_ind_vip = min(s0_ind_vip+1, end_ind)
+        s1_ind_vip = min(s0_ind_vip + 1, end_ind)
 
-        ob0 = self.obs[start_ind]
-        obg = self.obs[end_ind]
-        obs0_vip = self.obs[s0_ind_vip]
-        obs1_vip = self.obs[s1_ind_vip]
+        ob0 = obs[start_ind]
+        obg = obs[end_ind]
+        obs0_vip = obs[s0_ind_vip]
+        obs1_vip = obs[s1_ind_vip]
 
         # Self-supervised reward (this is always -1)
         reward = float(s0_ind_vip == end_ind) - 1
 
-        ob = torch.from_numpy(np.stack([ob0, obg, obs0_vip, obs1_vip]))
+        ob = torch.from_numpy(np.stack([ob0, obg, obs0_vip, obs1_vip]).astype(np.float32))
         return (ob, reward)
 
     def __iter__(self):
@@ -182,58 +176,51 @@ class StateVIPBuffer(IterableDataset):
             yield self._sample()
 
 class StateIQLBuffer(IterableDataset):
-    def __init__(self, datasource="kitchen-complete-v0"):
-        import gym
-        import d4rl
-        self.gym = gym.make(datasource)
-        self.dataset = d4rl.qlearning_dataset(self.gym)
-        self.obs = self.dataset["observations"]
-        self.next_obs = self.dataset["next_observations"]
-        self.actions = self.dataset["actions"]
-        self.terminals = self.dataset["terminals"]
-        self.episodes = self._get_episodes()
+    def __init__(self, datasource="D4RL/kitchen/complete-v2"):
+        import minari
 
-    def _get_episodes(self):
-        episodes = []
-        start_ind = 0
-        # Create intervals for the start and end (inclusive) for each episode
-        for i, is_terminal in enumerate(self.terminals):
-            if is_terminal:
-                episodes.append((start_ind, i))
-                start_ind = i+1
-        if start_ind < len(self.terminals):
-            episodes.append((start_ind, len(self.terminals) - 1))
-        return episodes
+        dataset = minari.load_dataset(datasource, download=True)
+
+        # Store EpisodeData objects directly
+        # Minari kitchen obs is 59D (goals stored separately, not embedded)
+        self.episodes = [
+            ep for ep in dataset.iterate_episodes()
+            if len(ep.observations['observation']) > 1  # Need at least 2 states
+        ]
 
     def get_trajectory(self):
         episode_ind = np.random.randint(0, len(self.episodes))
-        episode_start, episode_end = self.episodes[episode_ind]
-        traj = torch.from_numpy(self.obs[episode_start:episode_end+1])
-        g = traj[-1] # (D,)
-        g_rep = g.unsqueeze(0).expand(traj.shape[0], -1)  # (T, D)
+        ep = self.episodes[episode_ind]
+        obs = ep.observations['observation'].astype(np.float32)  # (T+1, obs_dim)
+        traj = torch.from_numpy(obs)
+        g = traj[-1]  # (D,)
+        g_rep = g.unsqueeze(0).expand(traj.shape[0], -1)  # (T+1, D)
         return torch.cat([traj, g_rep], dim=-1)
-        
+
     def _sample(self):
         episode_ind = np.random.randint(0, len(self.episodes))
-        episode_start, episode_end = self.episodes[episode_ind]
-        # Ensure there are at least 2 states in the episode
-        if episode_end - episode_start < 1:
+        ep = self.episodes[episode_ind]
+        obs = ep.observations['observation']  # (T+1, obs_dim)
+        episode_len = len(obs) - 1  # T transitions
+
+        # Ensure there are at least 2 transitions in the episode
+        if episode_len < 2:
             return self._sample()
 
-        # Sample (o_t, o_t+1, o_T) for VIP training
-        t = np.random.randint(episode_start, episode_end)
-        t_g = np.random.randint(t+1, episode_end+1)
+        # Sample (o_t, o_t+1, o_T) for IQL training
+        t = np.random.randint(0, episode_len - 1)
+        t_g = np.random.randint(t + 1, episode_len)
 
-        g = torch.from_numpy(self.obs[t_g])
-        s = torch.from_numpy(self.obs[t])
-        s_next = torch.from_numpy(self.next_obs[t])
-        a = torch.from_numpy(self.actions[t])
+        g = torch.from_numpy(obs[t_g].astype(np.float32))
+        s = torch.from_numpy(obs[t].astype(np.float32))
+        s_next = torch.from_numpy(obs[t + 1].astype(np.float32))
+        a = torch.from_numpy(ep.actions[t].astype(np.float32))
 
-        reached = t+1 == t_g
-        is_terminal = self.terminals[t]
+        reached = t + 1 == t_g
+        is_terminal = ep.terminations[t] or ep.truncations[t]
         discount = torch.tensor(0.0 if is_terminal or reached else 1.0, dtype=torch.float32)
         r = torch.tensor(-1.0, dtype=torch.float32)
-        
+
         # Represent current state and goal state as one input state
         ob = torch.cat([s, g], dim=-1)
         ob_next = torch.cat([s_next, g], dim=-1)

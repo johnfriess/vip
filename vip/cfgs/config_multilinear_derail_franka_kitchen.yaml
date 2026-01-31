@@ -24,7 +24,7 @@ wandbuser:
 wandbproject: 
 
 # data
-dataset: kitchen-complete-v0
+dataset: D4RL/kitchen/complete-v2
 datapath: 
 doaug: "none"
 

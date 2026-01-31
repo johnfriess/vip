@@ -1,8 +1,12 @@
 """
 This is a launcher script for launching mjrl training using hydra
 """
-import numpy as np
 import os
+# MUST set before any mujoco/dm_control imports
+if 'MUJOCO_GL' not in os.environ:
+    os.environ['MUJOCO_GL'] = 'egl'
+
+import numpy as np
 import time as timer
 import glob
 import hydra
@@ -31,16 +35,16 @@ def configure_jobs(job_data):
     assert job_data.embedding_reward ==  True
     assert job_data.env_kwargs.embedding_reward == True 
 
-    job_data.env_kwargs.load_path = job_data.embedding
+    if "state_" in job_data.embedding:
+        job_data.env_kwargs.load_path = f"{job_data.embedding}:{job_data.checkpoint_path}"
+    else:
+        job_data.env_kwargs.load_path = job_data.embedding
     job_data.job_name = job_data.embedding
     reward_type = f"{job_data.embedding}" if job_data.embedding_reward else "true"
     job_data.job_name = f"{job_data.env}-{reward_type}-{job_data.camera}-{job_data.env_kwargs.init_timestep}-{job_data.env_kwargs.goal_timestep}-seed{job_data.seed}"
     
     with open('job_config.yaml', 'w') as fp:
         OmegaConf.save(config=job_data, f=fp.name)
-    
-    if 'env_hyper_params' in job_data.keys():
-        job_data.env = register_env_variant(job_data.env, job_data.env_hyper_params)
 
     # Construct environment 
     env_kwargs = job_data['env_kwargs']
@@ -84,13 +88,16 @@ def configure_jobs(job_data):
             # take one-step with trajectory optimization
             agent.train_step(job_data['num_iter'])
             step_info = agent.sol_info[-1]
-            step_log = {'t':step_info['obs_dict']['t'],
-            'rwd_sparse': step_info['rwd_sparse'],
-            'rwd_dense': step_info['rwd_dense'],
-            'solved': step_info['solved'] * 1.0, 
-            'ee_error':step_info['obs_dict']['ee_error'],
-            'robot_error':step_info['obs_dict']['robot_error'],
-            'objs_error':step_info['obs_dict']['objs_error']}
+            obs_dict = step_info.get('obs_dict', {})
+            step_log = {
+                't': obs_dict.get('t', None),
+                'rwd_sparse': step_info.get('rwd_sparse', None),
+                'rwd_dense': step_info.get('rwd_dense', None),
+                'solved': step_info.get('solved', 0) * 1.0,
+                'ee_error': obs_dict.get('ee_error', None),
+                'robot_error': obs_dict.get('robot_error', None),
+                'objs_error': obs_dict.get('objs_error', None)
+            }
             
             # Save embedding distance curve
             fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(18,6))

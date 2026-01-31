@@ -1,0 +1,65 @@
+default:
+    - override hydra/output: local
+    - override hydra/launcher: local
+
+# general inputs
+env           :   D4RL/kitchen/complete-v2  # Minari dataset name
+seed              :   123
+
+pixel_based       :   False                 # state based experiment
+embedding_reward  :   True                   # use learned state embedding distance as reward
+embedding         :   state_vip
+checkpoint_path   :   ""                     # path to trained checkpoint .pt file
+camera            :   default                # still needed for video logging
+device            :   cuda
+proprio           :   0
+use_minari        :   True                   # use Minari dataset (59D observations)
+
+# Episode/timestep selection (goal and init states loaded from dataset at runtime)
+goal_episode      :   2                      # which episode to use for goal/init states
+goal_timestep     :   60                     # timestep within episode (-1 = last timestep)
+init_timestep     :   30                      # timestep within episode for init state
+
+# environment related kwargs
+env_kwargs:
+    env_name       :   ${env}
+    device        :   ${device}
+    image_width   :   256
+    image_height  :   256
+    camera_name   :   ${camera}
+    pixel_based   :   ${pixel_based}
+    render_gpu_id :   0
+    load_path     :   ""
+    proprio       :   ${proprio}
+    embedding_reward: ${embedding_reward}
+    goal_episode  :   ${goal_episode}
+    goal_timestep :   ${goal_timestep}
+    init_timestep :   ${init_timestep}
+    use_minari    :   ${use_minari}
+
+# RL parameters (all params related to MPPI.)
+H_total           :       150
+num_traj          :       1
+num_iter          :       1                        # MPPI iterations per step (was 1, now 5 for refinement)
+plan_horizon      :       12
+paths_per_cpu     :       32                      # paths to sample (was 32, now 128 for better coverage)
+num_cpu           :       1
+filter:
+    beta_0: 0.25
+    beta_1: 0.8
+    beta_2: 0.0
+kappa             :       3.0                      # temperature for softmax weighting
+gamma             :       0.98
+default_act       :       'mean'
+visualize         :       True                   # generate trajectory GIFs
+
+
+# Algorithm hyperparameters : if alg requires additional params, can be specified here (or defaults will be used)
+alg_hyper_params  :   {'device': 'cpu'}
+
+# general outputs
+job_name          :   ${embedding}
+experiment        :  "None"
+hydra:
+    job:
+        name: online-mppi

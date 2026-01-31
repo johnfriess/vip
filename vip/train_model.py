@@ -135,6 +135,7 @@ class Workspace:
         global_snapshot =  self.work_dir / f'snapshot.pt'
         sdict = {}
         sdict["model"] = self.model.state_dict()
+        sdict["model_cfg"] = OmegaConf.to_container(self.cfg.agent)
         torch.save(sdict, snapshot)
         sdict["global_step"] = self._global_step
         torch.save(sdict, global_snapshot)

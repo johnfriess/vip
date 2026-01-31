@@ -6,7 +6,7 @@
 Wrapper around a gym env that provides convenience functions
 """
 
-import gym
+import gymnasium as gym
 import numpy as np
 
 
@@ -36,6 +36,7 @@ class GymEnv(object):
         self.env = env
         self.env_id = env.unwrapped.spec.id
         self.act_repeat = act_repeat
+        self._seed = None  # Store seed for Gymnasium-style seeding
 
         try:
             self._horizon = env.spec.max_episode_steps
@@ -86,9 +87,7 @@ class GymEnv(object):
             self.env._elapsed_steps = 0
             return self.env.unwrapped.reset_model(seed=seed)
         except:
-            if seed is not None:
-                self.set_seed(seed)
-            return self.env.reset()
+            return self.env.reset(seed=self._seed)
 
     def reset_model(self, seed=None):
         # overloading for legacy code
@@ -97,11 +96,13 @@ class GymEnv(object):
     def step(self, action):
         action = action.clip(self.action_space.low, self.action_space.high)
         if self.act_repeat == 1:
-            obs, cum_reward, done, ifo = self.env.step(action)
+            obs, cum_reward, terminated, truncated, ifo = self.env.step(action)
+            done = terminated or truncated
         else:
             cum_reward = 0.0
             for i in range(self.act_repeat):
-                obs, reward, done, ifo = self.env.step(action)
+                obs, reward, terminated, truncated, ifo = self.env.step(action)
+                done = terminated or truncated
                 cum_reward += reward
                 if done: break
         return self.obs_mask * obs, cum_reward, done, ifo
@@ -114,10 +115,7 @@ class GymEnv(object):
             self.env.render()
 
     def set_seed(self, seed=123):
-        try:
-            self.env.seed(seed)
-        except AttributeError:
-            self.env._seed(seed)
+        self._seed = seed
 
     def get_obs(self):
         try:
@@ -137,13 +135,13 @@ class GymEnv(object):
 
     def get_env_state(self):
         try:
-            return self.env.unwrapped.get_env_state()
+            return self.env.get_env_state()
         except:
             raise NotImplementedError
 
     def set_env_state(self, state_dict):
         try:
-            self.env.unwrapped.set_env_state(state_dict)
+            self.env.set_env_state(state_dict)
         except:
             self.env.unwrapped.__setstate__(state_dict)
             # raise NotImplementedError

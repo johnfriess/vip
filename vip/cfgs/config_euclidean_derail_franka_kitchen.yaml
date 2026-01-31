@@ -10,7 +10,7 @@ load_snap: ""
 # replay buffer
 num_workers: 0
 batch_size: 32 
-train_steps: 8001
+train_steps: 489200  # 100 epochs (dataset has 156560 samples, batch_size=32 → 4892 steps/epoch)
 eval_freq: 1000
 
 # misc
@@ -24,7 +24,7 @@ wandbuser:
 wandbproject: 
 
 # data
-dataset: kitchen-complete-v0
+dataset: D4RL/kitchen/partial-v2
 datapath: 
 doaug: "none"
 
