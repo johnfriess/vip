@@ -67,7 +67,11 @@ def env_constructor(env_name, device='cuda', image_width=256, image_height=256,
         if use_minari:
             # Load Minari dataset and recover environment
             minari_dataset = minari.load_dataset(env_name, download=True)
-            env = minari_dataset.recover_environment(render_mode='rgb_array')
+            env = minari_dataset.recover_environment(
+                render_mode='rgb_array',
+                robot_noise_ratio=0.0,
+                object_noise_ratio=0.0
+            )
         else:
             env = gym.make(env_name)
         ## Wrap in pixel observation wrapper
@@ -126,38 +130,26 @@ class StateEmbedding(gym.ObservationWrapper):
         self.state_based_reward = False
         self.multilinear = False
 
-        if "state_euclidean_derail:" in load_path or "state_multilinear_derail:" in load_path:
-            checkpoint_path = load_path.split(":", 1)[1]
-            is_multilinear = "state_multilinear_derail" in load_path
-            print(f"Loading {'StateMultilinearDERAIL' if is_multilinear else 'StateEuclideanDERAIL'} from {checkpoint_path}")
+        if "state_vip:" in load_path or "state_euclidean_derail:" in load_path or "state_multilinear_derail:" in load_path:
+            model_name, checkpoint_path = load_path.split(":", 1)
+            print(f"Loading {model_name} from {checkpoint_path}")
+
             checkpoint = torch.load(checkpoint_path, map_location='cpu')
             model_cfg = {k: v for k, v in checkpoint['model_cfg'].items() if not k.startswith('_')}
-            if is_multilinear:
-                from vip.models.model_derail import StateMultilinearDERAIL
-                embedding = StateMultilinearDERAIL(**model_cfg)
+
+            if model_name == "state_vip":
+                from vip.models.model_vip import StateVIP
+                embedding = StateVIP(**model_cfg)
             else:
                 from vip.models.model_derail import StateEuclideanDERAIL
                 embedding = StateEuclideanDERAIL(**model_cfg)
-            embedding.load_state_dict({k.replace('module.', ''): v for k, v in checkpoint['model'].items()})
-            embedding.eval()
-            embedding_dim = embedding.hidden_dim
-            self.transforms = None
-            self.state_based_reward = True
-            self.multilinear = is_multilinear
-        elif "state_vip:" in load_path:
-            checkpoint_path = load_path.split(":", 1)[1]
-            print(f"Loading StateVIP from {checkpoint_path}")
-            checkpoint = torch.load(checkpoint_path, map_location='cpu')
-            model_cfg = {k: v for k, v in checkpoint['model_cfg'].items() if not k.startswith('_')}
-            from vip.models.model_vip import StateVIP
-            embedding = StateVIP(**model_cfg)
+
             embedding.load_state_dict({k.replace('module.', ''): v for k, v in checkpoint['model'].items()})
             embedding.eval()
             embedding = torch.nn.DataParallel(embedding)
             embedding_dim = embedding.module.hidden_dim
             self.transforms = None
             self.state_based_reward = True
-            self.multilinear = False  # StateVIP uses embedding distance like StateEuclideanDERAIL
         elif "vip" in load_path:
             print(f"Loading pre-trained {load_path} model!")
             from vip import load_vip
