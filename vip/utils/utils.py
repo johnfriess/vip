@@ -166,12 +166,12 @@ def schedule(schdl, step):
                 return (1.0 - mix) * final1 + mix * final2
     raise NotImplementedError(schdl)
 
-def create_buffer(model_type='vip', datasource='ego4d', datapath=None, num_workers=10, doaug="none"):
+def create_buffer(model_type='vip', datasource='ego4d', datapath=None, num_workers=10, doaug="none", use_achieved_goal=False):
     if model_type in ['vip', 'derail']:
         if datasource not in STATE_DATASETS:
             return VIPBuffer(datasource, datapath, num_workers, doaug)
         else:
-            return StateVIPBuffer(datasource)
+            return StateVIPBuffer(datasource, use_achieved_goal=use_achieved_goal)
     elif model_type == 'iql':
         return StateIQLBuffer(datasource)
 

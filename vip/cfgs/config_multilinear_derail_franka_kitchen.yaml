@@ -25,8 +25,9 @@ wandbproject:
 
 # data
 dataset: D4RL/kitchen/complete-v2
-datapath: 
+datapath:
 doaug: "none"
+use_achieved_goal: false
 
 agent:
   _target_: vip.models.model_derail.StateMultilinearDERAIL

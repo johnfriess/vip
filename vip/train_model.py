@@ -40,8 +40,8 @@ class Workspace:
             self.setup()
 
         print("Creating Dataloader")
-        self.train_iterable = utils.create_buffer(model_type=self.cfg.model, datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=self.cfg.doaug)
-        self.val_iterable = utils.create_buffer(model_type=self.cfg.model, datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=0)
+        self.train_iterable = utils.create_buffer(model_type=self.cfg.model, datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=self.cfg.doaug, use_achieved_goal=self.cfg.use_achieved_goal)
+        self.val_iterable = utils.create_buffer(model_type=self.cfg.model, datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=0, use_achieved_goal=self.cfg.use_achieved_goal)
 
         self.train_loader = iter(torch.utils.data.DataLoader(self.train_iterable,
                                          batch_size=self.cfg.batch_size,
@@ -136,6 +136,7 @@ class Workspace:
         sdict = {}
         sdict["model"] = self.model.state_dict()
         sdict["model_cfg"] = OmegaConf.to_container(self.cfg.agent)
+        sdict["use_achieved_goal"] = self.cfg.use_achieved_goal
         torch.save(sdict, snapshot)
         sdict["global_step"] = self._global_step
         torch.save(sdict, global_snapshot)

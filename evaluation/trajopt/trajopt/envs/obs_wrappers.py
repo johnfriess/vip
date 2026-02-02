@@ -26,6 +26,26 @@ import sys
 import minari
 from trajopt.envs.gym_env import GymEnv
 
+
+def extract_achieved_goal(obs):
+    """Extract 11D achieved_goal from 59D observation.
+
+    FrankaKitchen achieved_goal contains:
+        - kettle (7D): obs[32:39] - position + quaternion
+        - light switch (2D): obs[26:28]
+        - microwave (1D): obs[31]
+        - slide cabinet (1D): obs[28]
+
+    Returns flattened array in order: [kettle(7), light(2), microwave(1), slide(1)]
+    """
+    return np.concatenate([
+        obs[32:39],  # kettle (7D)
+        obs[26:28],  # light switch (2D)
+        obs[31:32],  # microwave (1D)
+        obs[28:29],  # slide cabinet (1D)
+    ])
+
+
 def init(module, weight_init, bias_init, gain=1):
     weight_init(module.weight.data, gain=gain)
     bias_init(module.bias.data)
@@ -129,6 +149,7 @@ class StateEmbedding(gym.ObservationWrapper):
 
         self.state_based_reward = False
         self.multilinear = False
+        self.use_achieved_goal = False
 
         if "state_vip:" in load_path or "state_euclidean_derail:" in load_path or "state_multilinear_derail:" in load_path:
             model_name, checkpoint_path = load_path.split(":", 1)
@@ -136,6 +157,7 @@ class StateEmbedding(gym.ObservationWrapper):
 
             checkpoint = torch.load(checkpoint_path, map_location='cpu')
             model_cfg = {k: v for k, v in checkpoint['model_cfg'].items() if not k.startswith('_')}
+            self.use_achieved_goal = checkpoint.get('use_achieved_goal', False)
 
             if model_name == "state_vip":
                 from vip.models.model_vip import StateVIP
@@ -290,6 +312,8 @@ class StateEmbedding(gym.ObservationWrapper):
 
     def observation(self, observation):
         if self.state_based_reward:
+            if self.use_achieved_goal:
+                observation = extract_achieved_goal(observation)
             state_tensor = torch.tensor(observation, dtype=torch.float32).unsqueeze(0).to(self.device)
             with torch.no_grad():
                 emb = self.embedding(state_tensor).cpu().numpy().squeeze()

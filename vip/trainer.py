@@ -227,7 +227,7 @@ class DERAILTrainer():
             t3 = time.time()
 
             V_0 = model.module.sim(e0, eg) # -||phi(s) - phi(g)||_2
-            r =  b_reward.to(V_0.device) # R(s;g) = (s==g) - 1 
+            r =  b_reward.to(V_0.device) # R(s;g) = (s==g) - 1
             V_s = model.module.sim(es0_derail, eg)
             V_s_next = model.module.sim(es1_derail, eg)
         elif isinstance(model.module, StateMultilinearDERAIL):

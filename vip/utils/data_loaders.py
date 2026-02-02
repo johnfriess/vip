@@ -130,19 +130,27 @@ class VIPBuffer(IterableDataset):
             yield self._sample()
 
 class StateVIPBuffer(IterableDataset):
-    def __init__(self, datasource="D4RL/kitchen/complete-v2"):
+    def __init__(self, datasource="D4RL/kitchen/complete-v2", use_achieved_goal=False):
         import minari
 
+        self.use_achieved_goal = use_achieved_goal
         dataset = minari.load_dataset(datasource, download=True)
 
-        # Store episode observations directly (list of numpy arrays)
-        # Each episode.observations['observation'] has shape (T+1, obs_dim)
-        # Minari kitchen obs is 59D (goals stored separately, not embedded)
-        self.episodes = [
-            ep.observations['observation']
-            for ep in dataset.iterate_episodes()
-            if len(ep.observations['observation']) > 2  # Need at least 3 states
-        ]
+        self.episodes = []
+        for ep in dataset.iterate_episodes():
+            if len(ep.observations['observation']) > 2:
+                if use_achieved_goal:
+                    achieved = ep.observations['achieved_goal']
+                    # Flatten achieved_goal: kettle(7) + light(2) + microwave(1) + slide(1) = 11D
+                    flattened = np.concatenate([
+                        achieved['kettle'],
+                        achieved['light switch'],
+                        achieved['microwave'],
+                        achieved['slide cabinet']
+                    ], axis=1)
+                    self.episodes.append(flattened)
+                else:
+                    self.episodes.append(ep.observations['observation'])
 
     def get_trajectory(self):
         episode_ind = np.random.randint(0, len(self.episodes))
