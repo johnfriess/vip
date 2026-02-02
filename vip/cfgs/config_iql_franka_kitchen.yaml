@@ -10,8 +10,8 @@ load_snap: ""
 # replay buffer
 num_workers: 0
 batch_size: 32 
-train_steps: 8001
-eval_freq: 1000
+train_steps: 50001
+eval_freq: 10000
 
 # misc
 seed: 1
@@ -33,9 +33,9 @@ agent:
   _target_: vip.models.model_iql.StateIQL
   device: ${device}
   lr: 1e-4
-  hidden_dim: 256
-  size: 1
-  mlp_width: 256
+  hidden_dim: 32
+  size: 0
+  mlp_width: 64
   expectile: 0.7
   beta: 3.0
   max_adv: 100.0

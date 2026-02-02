@@ -150,8 +150,10 @@ class StateEmbedding(gym.ObservationWrapper):
         self.state_based_reward = False
         self.multilinear = False
         self.use_achieved_goal = False
+        self.is_iql = False
+        self.goal_state = None
 
-        if "state_vip:" in load_path or "state_euclidean_derail:" in load_path or "state_multilinear_derail:" in load_path:
+        if "state_vip:" in load_path or "state_euclidean_derail:" in load_path or "state_multilinear_derail:" in load_path or "state_iql:" in load_path:
             model_name, checkpoint_path = load_path.split(":", 1)
             print(f"Loading {model_name} from {checkpoint_path}")
 
@@ -162,9 +164,17 @@ class StateEmbedding(gym.ObservationWrapper):
             if model_name == "state_vip":
                 from vip.models.model_vip import StateVIP
                 embedding = StateVIP(**model_cfg)
-            else:
+            elif model_name == "state_euclidean_derail":
                 from vip.models.model_derail import StateEuclideanDERAIL
                 embedding = StateEuclideanDERAIL(**model_cfg)
+            elif model_name == "state_multilinear_derail":
+                from vip.models.model_derail import StateMultilinearDERAIL
+                embedding = StateMultilinearDERAIL(**model_cfg)
+                self.multilinear = True
+            elif model_name == "state_iql":
+                from vip.models.model_iql import StateIQL
+                embedding = StateIQL(**model_cfg)
+                self.is_iql = True
 
             embedding.load_state_dict({k.replace('module.', ''): v for k, v in checkpoint['model'].items()})
             embedding.eval()
@@ -284,6 +294,11 @@ class StateEmbedding(gym.ObservationWrapper):
                     }
 
                     goal_state = obs[actual_goal_idx].astype(np.float32)
+                    if self.multilinear or self.is_iql:
+                        if self.use_achieved_goal:
+                            self.goal_state = extract_achieved_goal(goal_state)
+                        else:
+                            self.goal_state = goal_state
                     self.goal_embedding[camera] = self.observation(goal_state)
                 else:
                     # mj_envs MPPI demo for goal embedding 
@@ -316,7 +331,14 @@ class StateEmbedding(gym.ObservationWrapper):
                 observation = extract_achieved_goal(observation)
             state_tensor = torch.tensor(observation, dtype=torch.float32).unsqueeze(0).to(self.device)
             with torch.no_grad():
-                emb = self.embedding(state_tensor).cpu().numpy().squeeze()
+                if self.multilinear:
+                    emb = self.embedding.module.encoder1(state_tensor).cpu().numpy().squeeze()
+                elif self.is_iql:
+                    goal_tensor = torch.tensor(self.goal_state, dtype=torch.float32).unsqueeze(0).to(self.device)
+                    sg = torch.cat([state_tensor, goal_tensor], dim=-1)
+                    emb = self.embedding.module.v_encoder(sg).cpu().numpy().squeeze()
+                else:
+                    emb = self.embedding(state_tensor).cpu().numpy().squeeze()
             return emb
         ### INPUT SHOULD BE [0,255]
         if self.embedding is not None and len(observation.shape) > 1:
@@ -392,13 +414,18 @@ class StateEmbedding(gym.ObservationWrapper):
     def step(self, action):
         observation, reward, terminated, truncated, info = self.env.step(action)
         obs_embedding = self.observation(observation)
-        info['obs_embedding'] = obs_embedding 
+        info['obs_embedding'] = obs_embedding
         if self.embedding_reward:
             rewards = []
-            # Note: only single camera evaluation is supported 
             for camera in self.cameras:
                 if self.state_based_reward:
-                    reward_camera = -np.linalg.norm(obs_embedding-self.goal_embedding[camera])
+                    if self.multilinear:
+                        reward_camera = self._compute_multilinear_value(observation)
+                    elif self.is_iql:
+                        reward_camera = self._compute_iql_value(observation)
+                    else:
+                        # VIP/Euclidean DERAIL: embedding distance
+                        reward_camera = -np.linalg.norm(obs_embedding-self.goal_embedding[camera])
                 else:
                     img_camera = self.env.get_image(camera_name=camera)
                     obs_embedding_camera = self.observation(img_camera)
@@ -422,7 +449,29 @@ class StateEmbedding(gym.ObservationWrapper):
         else: 
             state = obs_embedding 
         return state, reward, terminated, truncated, info
-    
+
+    def _compute_multilinear_value(self, observation):
+        """Compute multilinear value: V(s, g) = φ1(s) @ M(g) @ φ3(g)"""
+        if self.use_achieved_goal:
+            observation = extract_achieved_goal(observation)
+        state_tensor = torch.tensor(observation, dtype=torch.float32).unsqueeze(0).to(self.device)
+        goal_tensor = torch.tensor(self.goal_state, dtype=torch.float32).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            h1, h2, h3 = self.embedding.module(state_tensor, goal_tensor)
+            value = self.embedding.module.value(h1, h2, h3).cpu().numpy().squeeze()
+        return float(value)
+
+    def _compute_iql_value(self, observation):
+        """Compute IQL value: V(s || g) using v_value"""
+        if self.use_achieved_goal:
+            observation = extract_achieved_goal(observation)
+        state_tensor = torch.tensor(observation, dtype=torch.float32).unsqueeze(0).to(self.device)
+        goal_tensor = torch.tensor(self.goal_state, dtype=torch.float32).unsqueeze(0).to(self.device)
+        sg = torch.cat([state_tensor, goal_tensor], dim=-1)
+        with torch.no_grad():
+            value = self.embedding.module.v_value(sg).cpu().numpy().squeeze()
+        return float(value)
+
     def reset(self, seed):
         observation, _ = self.env.reset(seed=seed)
         try:
