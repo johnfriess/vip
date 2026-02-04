@@ -1,0 +1,49 @@
+# Online RL with State VIP Rewards
+# This config trains a policy using NPG/PPO with VIP embedding rewards
+
+# Environment settings
+env_name: D4RL/kitchen/complete-v2    # Minari dataset name
+max_episode_steps: 280                 # Max steps per episode
+
+# VIP Model settings
+checkpoint_path: ""                    # Path to VIP checkpoint (REQUIRED)
+model_type: state_vip                  # state_vip, state_euclidean_derail, state_multilinear_derail, state_iql
+
+# Goal/Init state settings (from Minari dataset)
+goal_episode: 2                        # Which episode to sample goal from
+goal_timestep: -1                      # Which timestep for goal (-1 = last)
+init_timestep: 0                       # Which timestep to start from
+
+# RL Algorithm
+algorithm: NPG                         # NPG, PPO, or VPG
+seed: 123
+
+# Policy network
+policy_hidden_sizes: [64, 64]          # MLP hidden layer sizes
+init_log_std: -0.5                     # Initial policy log std
+
+# Value function (baseline)
+vf_hidden_sizes: [64, 64]              # Value function hidden sizes
+vf_batch_size: 64
+vf_epochs: 2
+vf_learn_rate: 0.001
+
+# Training parameters
+num_iter: 100                          # Number of training iterations
+num_traj: 50                           # Trajectories per iteration
+num_samples: 50000                     # Alternative: samples per iteration
+sample_mode: trajectories              # 'trajectories' or 'samples'
+step_size: 0.05                        # NPG normalized step size / VPG learning rate
+gamma: 0.99                            # Discount factor
+gae_lambda: 0.97                       # GAE lambda
+
+# Compute
+num_cpu: 1                             # Number of CPUs for parallel rollouts
+device: cuda                           # cuda or cpu
+
+# Evaluation & saving
+eval_rollouts: 5                       # Evaluation rollouts per iteration (0 to disable)
+save_freq: 10                          # Save checkpoint every N iterations
+
+# Algorithm-specific kwargs (optional)
+alg_kwargs: {}

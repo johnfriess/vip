@@ -1,0 +1,48 @@
+# Online RL with State IQL Rewards
+# Uses IQL value function for reward computation
+
+# Environment settings
+env_name: D4RL/kitchen/complete-v2
+max_episode_steps: 280
+
+# VIP Model settings
+checkpoint_path: ""                    # Path to IQL checkpoint (REQUIRED)
+model_type: state_iql
+
+# Goal/Init state settings
+goal_episode: 2
+goal_timestep: -1
+init_timestep: 0
+
+# RL Algorithm
+algorithm: NPG
+seed: 123
+
+# Policy network
+policy_hidden_sizes: [64, 64]
+init_log_std: -0.5
+
+# Value function (baseline)
+vf_hidden_sizes: [64, 64]
+vf_batch_size: 64
+vf_epochs: 2
+vf_learn_rate: 0.001
+
+# Training parameters
+num_iter: 100
+num_traj: 50
+num_samples: 50000
+sample_mode: trajectories
+step_size: 0.05
+gamma: 0.99
+gae_lambda: 0.97
+
+# Compute
+num_cpu: 1
+device: cuda
+
+# Evaluation & saving
+eval_rollouts: 5
+save_freq: 10
+
+alg_kwargs: {}
