@@ -40,8 +40,33 @@ class Workspace:
             self.setup()
 
         print("Creating Dataloader")
-        self.train_iterable = utils.create_buffer(model_type=self.cfg.model, datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=self.cfg.doaug, use_achieved_goal=self.cfg.use_achieved_goal)
-        self.val_iterable = utils.create_buffer(model_type=self.cfg.model, datasource=self.cfg.dataset, datapath=self.cfg.datapath, num_workers=self.cfg.num_workers, doaug=0, use_achieved_goal=self.cfg.use_achieved_goal)
+        # Get robomimic-specific config params with defaults
+        obs_keys = self.cfg.get('obs_keys', None)
+        filter_key = self.cfg.get('filter_key', None)
+        use_states = self.cfg.get('use_states', False)
+
+        self.train_iterable = utils.create_buffer(
+            model_type=self.cfg.model,
+            datasource=self.cfg.dataset,
+            datapath=self.cfg.datapath,
+            num_workers=self.cfg.num_workers,
+            doaug=self.cfg.doaug,
+            use_achieved_goal=self.cfg.use_achieved_goal,
+            obs_keys=obs_keys,
+            filter_key=filter_key,
+            use_states=use_states
+        )
+        self.val_iterable = utils.create_buffer(
+            model_type=self.cfg.model,
+            datasource=self.cfg.dataset,
+            datapath=self.cfg.datapath,
+            num_workers=self.cfg.num_workers,
+            doaug=0,
+            use_achieved_goal=self.cfg.use_achieved_goal,
+            obs_keys=obs_keys,
+            filter_key=None,  # Use all data for validation
+            use_states=use_states
+        )
 
         self.train_loader = iter(torch.utils.data.DataLoader(self.train_iterable,
                                          batch_size=self.cfg.batch_size,
@@ -128,7 +153,14 @@ class Workspace:
             self._global_step += 1
         
         print("Visualizing Trajectory")
-        utils.visualize_trajectory(model=self.model, model_type=self.cfg.model, datasource=self.cfg.dataset, buffer=self.val_iterable, device=self.device)
+        utils.visualize_trajectory(
+            model=self.model,
+            model_type=self.cfg.model,
+            datasource=self.cfg.dataset,
+            buffer=self.val_iterable,
+            device=self.device,
+            datapath=self.cfg.datapath
+        )
 
     def save_snapshot(self):
         snapshot = self.work_dir / f'snapshot_{self.global_step}.pt'

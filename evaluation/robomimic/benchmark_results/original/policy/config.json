@@ -1,0 +1,12 @@
+{
+  "algo_name": "iql",
+  "experiment": {
+    "name": "policy_iql"
+  },
+  "train": {
+    "data": "/u/jfriess/Documents/Research/vip/datasets/lift/ph/low_dim_v141.hdf5",
+    "output_dir": "./benchmark_results/original/policy",
+    "num_epochs": 2000,
+    "batch_size": 100
+  }
+}

@@ -1,0 +1,48 @@
+defaults:
+  - _self_
+  - override hydra/launcher: local
+  - override hydra/output: local
+
+# snapshot
+save_snapshot: true
+load_snap: ""
+
+# replay buffer
+num_workers: 0
+batch_size: 32
+train_steps: 100001
+eval_freq: 20000
+
+# misc
+seed: 1
+device: cuda
+
+# experiment
+experiment: train_model
+model: derail
+wandbuser:
+wandbproject:
+
+# data - robomimic dataset
+dataset: robomimic
+datapath: null  # Path to robomimic HDF5 file (e.g., /path/to/lift_ph_low_dim.hdf5)
+doaug: "none"
+use_achieved_goal: false
+
+# robomimic-specific options
+obs_keys: null  # List of obs keys to use, e.g., ["robot0_eef_pos", "robot0_gripper_qpos", "object"]
+filter_key: null  # 'train', 'valid', or null for all demos
+use_states: false  # If true, use raw MuJoCo states instead of observations
+
+agent:
+  _target_: vip.models.model_derail.StateEuclideanDERAIL
+  device: ${device}
+  lr: 1e-4
+  hidden_dim: 32
+  size: 0
+  mlp_width: 64
+  l2weight: 0.01
+  l1weight: 0.01
+  conservative_weight: 0.2
+  gamma: 0.9
+  num_negatives: 0

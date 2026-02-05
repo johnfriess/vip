@@ -26,11 +26,21 @@ import pickle
 from torchvision.utils import save_image
 import json
 import random
+import h5py
 
 STATE_DATASETS = [
     "D4RL/kitchen/complete-v2",
     "D4RL/kitchen/partial-v2",
     "D4RL/kitchen/mixed-v2",
+    "robomimic",
+]
+
+# Default observation keys for robomimic low-dim datasets
+ROBOMIMIC_DEFAULT_OBS_KEYS = [
+    "robot0_eef_pos",
+    "robot0_eef_quat",
+    "robot0_gripper_qpos",
+    "object",
 ]
 
 def get_ind(vid, index, ds="ego4d"):
@@ -237,3 +247,222 @@ class StateIQLBuffer(IterableDataset):
     def __iter__(self):
         while True:
             yield self._sample()
+
+
+class RobomimicVIPBuffer(IterableDataset):
+    """Data loader for robomimic HDF5 datasets for VIP training.
+
+    Supports both low-dimensional observations and raw states.
+    """
+    def __init__(self, hdf5_path, obs_keys=None, filter_key=None, use_states=False):
+        """
+        Args:
+            hdf5_path: Path to robomimic HDF5 file
+            obs_keys: List of observation keys to concatenate. If None, uses defaults.
+            filter_key: 'train', 'valid', or None for all demos
+            use_states: If True, use raw 'states' instead of 'obs'
+        """
+        self.hdf5_path = hdf5_path
+        self.obs_keys = obs_keys
+        self.filter_key = filter_key
+        self.use_states = use_states
+
+        # Load dataset
+        self.hdf5_file = h5py.File(hdf5_path, 'r')
+
+        # Get demo keys
+        if filter_key is not None and f"mask/{filter_key}" in self.hdf5_file:
+            self.demo_keys = [
+                key.decode('utf-8') if isinstance(key, bytes) else key
+                for key in self.hdf5_file[f"mask/{filter_key}"][:]
+            ]
+        else:
+            self.demo_keys = [
+                key for key in self.hdf5_file["data"].keys()
+                if key.startswith("demo_")
+            ]
+
+        # Preload all episodes for faster sampling
+        self.episodes = []
+        for demo_key in self.demo_keys:
+            demo = self.hdf5_file[f"data/{demo_key}"]
+            if self.use_states:
+                obs = demo["states"][:]
+            else:
+                obs = self._get_obs(demo)
+            if len(obs) > 2:  # Need at least 3 observations
+                self.episodes.append(obs.astype(np.float32))
+
+    def _get_obs(self, demo):
+        """Concatenate observation keys into a single observation vector."""
+        obs_group = demo["obs"]
+        keys = self.obs_keys if self.obs_keys else ROBOMIMIC_DEFAULT_OBS_KEYS
+
+        obs_arrays = []
+        for key in keys:
+            if key in obs_group:
+                arr = obs_group[key][:]
+                if arr.ndim > 2:
+                    # Flatten if needed (e.g., images would be skipped in state-based)
+                    arr = arr.reshape(arr.shape[0], -1)
+                obs_arrays.append(arr)
+
+        if not obs_arrays:
+            # Fallback to states if no obs keys found
+            return demo["states"][:]
+
+        return np.concatenate(obs_arrays, axis=-1)
+
+    def get_trajectory(self):
+        """Return a random trajectory for visualization."""
+        episode_ind = np.random.randint(0, len(self.episodes))
+        return torch.tensor(self.episodes[episode_ind], dtype=torch.float32)
+
+    def _sample(self):
+        episode_ind = np.random.randint(0, len(self.episodes))
+        obs = self.episodes[episode_ind]  # (T+1, obs_dim)
+        episode_len = len(obs) - 1  # T transitions
+
+        # Sample (o_start, o_goal, o_t, o_t+1) for VIP training
+        start_ind = np.random.randint(0, episode_len - 1)
+        end_ind = np.random.randint(start_ind + 1, episode_len + 1)
+
+        s0_ind_vip = np.random.randint(start_ind, end_ind)
+        s1_ind_vip = min(s0_ind_vip + 1, end_ind)
+
+        ob0 = obs[start_ind]
+        obg = obs[end_ind]
+        obs0_vip = obs[s0_ind_vip]
+        obs1_vip = obs[s1_ind_vip]
+
+        # Self-supervised reward (always -1 for VIP)
+        reward = float(s0_ind_vip == end_ind) - 1
+
+        ob = torch.from_numpy(np.stack([ob0, obg, obs0_vip, obs1_vip]))
+        return (ob, reward)
+
+    def __iter__(self):
+        while True:
+            yield self._sample()
+
+    def __del__(self):
+        if hasattr(self, 'hdf5_file'):
+            self.hdf5_file.close()
+
+
+class RobomimicIQLBuffer(IterableDataset):
+    """Data loader for robomimic HDF5 datasets for IQL training.
+
+    Returns (state, action, reward, discount, next_state) tuples with goal conditioning.
+    """
+    def __init__(self, hdf5_path, obs_keys=None, filter_key=None, use_states=False):
+        """
+        Args:
+            hdf5_path: Path to robomimic HDF5 file
+            obs_keys: List of observation keys to concatenate. If None, uses defaults.
+            filter_key: 'train', 'valid', or None for all demos
+            use_states: If True, use raw 'states' instead of 'obs'
+        """
+        self.hdf5_path = hdf5_path
+        self.obs_keys = obs_keys
+        self.filter_key = filter_key
+        self.use_states = use_states
+
+        # Load dataset
+        self.hdf5_file = h5py.File(hdf5_path, 'r')
+
+        # Get demo keys
+        if filter_key is not None and f"mask/{filter_key}" in self.hdf5_file:
+            self.demo_keys = [
+                key.decode('utf-8') if isinstance(key, bytes) else key
+                for key in self.hdf5_file[f"mask/{filter_key}"][:]
+            ]
+        else:
+            self.demo_keys = [
+                key for key in self.hdf5_file["data"].keys()
+                if key.startswith("demo_")
+            ]
+
+        # Store episodes with observations and actions
+        self.episodes = []
+        for demo_key in self.demo_keys:
+            demo = self.hdf5_file[f"data/{demo_key}"]
+            if self.use_states:
+                obs = demo["states"][:]
+            else:
+                obs = self._get_obs(demo)
+            actions = demo["actions"][:]
+            dones = demo["dones"][:] if "dones" in demo else np.zeros(len(actions))
+
+            if len(obs) > 1:  # Need at least 2 states
+                self.episodes.append({
+                    'obs': obs.astype(np.float32),
+                    'actions': actions.astype(np.float32),
+                    'dones': dones,
+                })
+
+    def _get_obs(self, demo):
+        """Concatenate observation keys into a single observation vector."""
+        obs_group = demo["obs"]
+        keys = self.obs_keys if self.obs_keys else ROBOMIMIC_DEFAULT_OBS_KEYS
+
+        obs_arrays = []
+        for key in keys:
+            if key in obs_group:
+                arr = obs_group[key][:]
+                if arr.ndim > 2:
+                    arr = arr.reshape(arr.shape[0], -1)
+                obs_arrays.append(arr)
+
+        if not obs_arrays:
+            return demo["states"][:]
+
+        return np.concatenate(obs_arrays, axis=-1)
+
+    def get_trajectory(self):
+        """Return a random trajectory for visualization."""
+        episode_ind = np.random.randint(0, len(self.episodes))
+        ep = self.episodes[episode_ind]
+        obs = ep['obs']
+        traj = torch.from_numpy(obs)
+        g = traj[-1]  # (D,)
+        g_rep = g.unsqueeze(0).expand(traj.shape[0], -1)  # (T+1, D)
+        return torch.cat([traj, g_rep], dim=-1)
+
+    def _sample(self):
+        episode_ind = np.random.randint(0, len(self.episodes))
+        ep = self.episodes[episode_ind]
+        obs = ep['obs']  # (T+1, obs_dim)
+        actions = ep['actions']  # (T, action_dim)
+        dones = ep['dones']
+        episode_len = len(obs) - 1  # T transitions
+
+        if episode_len < 2:
+            return self._sample()
+
+        # Sample (o_t, a_t, o_t+1, o_goal) for IQL training
+        t = np.random.randint(0, episode_len - 1)
+        t_g = np.random.randint(t + 1, episode_len)
+
+        g = torch.from_numpy(obs[t_g])
+        s = torch.from_numpy(obs[t])
+        s_next = torch.from_numpy(obs[t + 1])
+        a = torch.from_numpy(actions[t])
+
+        reached = t + 1 == t_g
+        is_terminal = bool(dones[t]) if t < len(dones) else False
+        discount = torch.tensor(0.0 if is_terminal or reached else 1.0, dtype=torch.float32)
+        r = torch.tensor(-1.0, dtype=torch.float32)
+
+        # Concatenate state and goal
+        ob = torch.cat([s, g], dim=-1)
+        ob_next = torch.cat([s_next, g], dim=-1)
+        return (ob, a, r, discount, ob_next)
+
+    def __iter__(self):
+        while True:
+            yield self._sample()
+
+    def __del__(self):
+        if hasattr(self, 'hdf5_file'):
+            self.hdf5_file.close()

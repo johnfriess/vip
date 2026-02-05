@@ -15,7 +15,10 @@ import matplotlib.pyplot as plt
 from omegaconf import OmegaConf
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
-from vip.utils.data_loaders import STATE_DATASETS, VIPBuffer, StateVIPBuffer, StateIQLBuffer
+from vip.utils.data_loaders import (
+    STATE_DATASETS, VIPBuffer, StateVIPBuffer, StateIQLBuffer,
+    RobomimicVIPBuffer, RobomimicIQLBuffer
+)
 from vip.models.model_derail import StateMultilinearDERAIL, StateEuclideanDERAIL
 from vip.trainer import VIPTrainer, IQLTrainer, DERAILTrainer
 
@@ -166,7 +169,26 @@ def schedule(schdl, step):
                 return (1.0 - mix) * final1 + mix * final2
     raise NotImplementedError(schdl)
 
-def create_buffer(model_type='vip', datasource='ego4d', datapath=None, num_workers=10, doaug="none", use_achieved_goal=False):
+def create_buffer(model_type='vip', datasource='ego4d', datapath=None, num_workers=10, doaug="none",
+                  use_achieved_goal=False, obs_keys=None, filter_key=None, use_states=False):
+    # Check if this is a robomimic HDF5 dataset
+    if datapath and datapath.endswith('.hdf5'):
+        if model_type in ['vip', 'derail']:
+            return RobomimicVIPBuffer(
+                hdf5_path=datapath,
+                obs_keys=obs_keys,
+                filter_key=filter_key,
+                use_states=use_states
+            )
+        elif model_type == 'iql':
+            return RobomimicIQLBuffer(
+                hdf5_path=datapath,
+                obs_keys=obs_keys,
+                filter_key=filter_key,
+                use_states=use_states
+            )
+
+    # Original logic for D4RL and ego4d datasets
     if model_type in ['vip', 'derail']:
         if datasource not in STATE_DATASETS:
             return VIPBuffer(datasource, datapath, num_workers, doaug)
@@ -183,8 +205,11 @@ def create_trainer(model_type='vip', eval_freq=1000):
     elif model_type == 'derail':
         return DERAILTrainer(eval_freq)
 
-def visualize_trajectory(model, model_type, datasource, buffer, device):
-    if datasource not in STATE_DATASETS: 
+def visualize_trajectory(model, model_type, datasource, buffer, device, datapath=None):
+    # Skip visualization for image-based datasets (ego4d, video datasets)
+    # Allow visualization for state-based datasets (D4RL, robomimic)
+    is_robomimic = datapath and datapath.endswith('.hdf5')
+    if not is_robomimic and datasource not in STATE_DATASETS:
         return
 
     traj = buffer.get_trajectory().to(device)
