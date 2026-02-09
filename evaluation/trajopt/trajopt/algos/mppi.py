@@ -117,3 +117,61 @@ class MPPI(Trajectory):
             paths = self.do_rollouts(self.seed+t)
             self.update(paths)
         self.advance_time()
+        return paths
+
+    def render_planning_trajectories(self, paths, camera_name=None, n_show=None):
+        """
+        Render sampled planning trajectories as a grid GIF with scores.
+        Uses the same generate_frame() as animate_result_offscreen.
+        Sorted best (top-left) to worst (bottom-right).
+        """
+        from trajopt.algos.trajopt_base import generate_frame
+        from PIL import Image, ImageDraw
+
+        scores = self.score_trajectory(paths)
+        sorted_indices = np.argsort(scores)[::-1]  # best first
+
+        if n_show is None:
+            n_show = len(paths)
+        n_show = min(n_show, len(paths))
+        selected = sorted_indices[:n_show]
+
+        # Grid layout: arrange n_show frames into rows and columns
+        n_cols = int(np.ceil(np.sqrt(n_show)))
+        n_rows = int(np.ceil(n_show / n_cols))
+
+        H = len(paths[0]["states"])
+        fw, fh = 256, 256
+
+        # Save env state so we can restore after rendering
+        saved_state = self.env.get_env_state().copy()
+        self.env.real_env_step(False)
+
+        grid_frames = []
+        for t in range(H):
+            grid = Image.new('RGB', (n_cols * fw, n_rows * fh), color=(0, 0, 0))
+            draw = ImageDraw.Draw(grid)
+
+            for k, idx in enumerate(selected):
+                self.env.set_env_state(paths[idx]["states"][t])
+                frame = generate_frame(self.env, frame_size=(fw, fh),
+                                       camera_name=camera_name)
+
+                row, col = k // n_cols, k % n_cols
+                grid.paste(Image.fromarray(frame), (col * fw, row * fh))
+
+                # Draw score text with black outline for readability
+                rank = k + 1
+                text = f"#{rank} V={scores[idx]:.3f}"
+                tx, ty = col * fw + 4, row * fh + 4
+                for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    draw.text((tx + dx, ty + dy), text, fill=(0, 0, 0))
+                draw.text((tx, ty), text, fill=(255, 255, 0))
+
+            grid_frames.append(np.array(grid))
+
+        # Restore env to where it was
+        self.env.set_env_state(saved_state)
+        self.env.real_env_step(True)
+
+        return grid_frames, scores

@@ -32,7 +32,15 @@ STATE_DATASETS = [
     "D4RL/kitchen/complete-v2",
     "D4RL/kitchen/partial-v2",
     "D4RL/kitchen/mixed-v2",
+    "D4RL/kitchen/all-v2",  # Combined: complete + partial + mixed
     "robomimic",
+]
+
+# Kitchen datasets that get combined when using "all-v2"
+KITCHEN_COMBINED_SOURCES = [
+    "D4RL/kitchen/complete-v2",
+    "D4RL/kitchen/partial-v2",
+    "D4RL/kitchen/mixed-v2",
 ]
 
 # Default observation keys for robomimic low-dim datasets
@@ -144,23 +152,30 @@ class StateVIPBuffer(IterableDataset):
         import minari
 
         self.use_achieved_goal = use_achieved_goal
-        dataset = minari.load_dataset(datasource, download=True)
+
+        # Determine which datasets to load
+        if datasource == "D4RL/kitchen/all-v2":
+            sources = KITCHEN_COMBINED_SOURCES
+        else:
+            sources = [datasource]
 
         self.episodes = []
-        for ep in dataset.iterate_episodes():
-            if len(ep.observations['observation']) > 2:
-                if use_achieved_goal:
-                    achieved = ep.observations['achieved_goal']
-                    # Flatten achieved_goal: kettle(7) + light(2) + microwave(1) + slide(1) = 11D
-                    flattened = np.concatenate([
-                        achieved['kettle'],
-                        achieved['light switch'],
-                        achieved['microwave'],
-                        achieved['slide cabinet']
-                    ], axis=1)
-                    self.episodes.append(flattened)
-                else:
-                    self.episodes.append(ep.observations['observation'])
+        for source in sources:
+            dataset = minari.load_dataset(source, download=True)
+            for ep in dataset.iterate_episodes():
+                if len(ep.observations['observation']) > 2:
+                    if use_achieved_goal:
+                        achieved = ep.observations['achieved_goal']
+                        # Flatten achieved_goal: kettle(7) + light(2) + microwave(1) + slide(1) = 11D
+                        flattened = np.concatenate([
+                            achieved['kettle'],
+                            achieved['light switch'],
+                            achieved['microwave'],
+                            achieved['slide cabinet']
+                        ], axis=1)
+                        self.episodes.append(flattened)
+                    else:
+                        self.episodes.append(ep.observations['observation'])
 
     def get_trajectory(self):
         episode_ind = np.random.randint(0, len(self.episodes))
@@ -197,14 +212,20 @@ class StateIQLBuffer(IterableDataset):
     def __init__(self, datasource="D4RL/kitchen/complete-v2"):
         import minari
 
-        dataset = minari.load_dataset(datasource, download=True)
+        # Determine which datasets to load
+        if datasource == "D4RL/kitchen/all-v2":
+            sources = KITCHEN_COMBINED_SOURCES
+        else:
+            sources = [datasource]
 
         # Store EpisodeData objects directly
         # Minari kitchen obs is 59D (goals stored separately, not embedded)
-        self.episodes = [
-            ep for ep in dataset.iterate_episodes()
-            if len(ep.observations['observation']) > 1  # Need at least 2 states
-        ]
+        self.episodes = []
+        for source in sources:
+            dataset = minari.load_dataset(source, download=True)
+            for ep in dataset.iterate_episodes():
+                if len(ep.observations['observation']) > 1:  # Need at least 2 states
+                    self.episodes.append(ep)
 
     def get_trajectory(self):
         episode_ind = np.random.randint(0, len(self.episodes))

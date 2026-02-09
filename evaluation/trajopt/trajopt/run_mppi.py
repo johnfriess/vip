@@ -84,9 +84,22 @@ def configure_jobs(job_data):
             distance = np.linalg.norm(agent.sol_embedding[-1][camera]-goal_embedding)
             distances[camera].append(distance)
 
-        for _ in tqdm(range(job_data['H_total'])):
+        for t_step in tqdm(range(job_data['H_total'])):
             # take one-step with trajectory optimization
-            agent.train_step(job_data['num_iter'])
+            paths = agent.train_step(job_data['num_iter'])
+
+            # At the first planning step (init_timestep), save GIFs of sampled trajectories
+            if t_step == 0:
+                os.makedirs(f"./{i}/planning", exist_ok=True)
+                for camera in agent.env.env.cameras:
+                    grid_frames, scores = agent.render_planning_trajectories(
+                        paths, camera_name=camera)
+                    plan_gif = f"./{i}/planning/sampled_trajectories_{camera}.gif"
+                    cl = ImageSequenceClip(grid_frames, fps=5)
+                    cl.write_gif(plan_gif, fps=5)
+                    print(f"Saved planning GIF: {plan_gif}")
+                    print(f"  Scores: min={scores.min():.3f} max={scores.max():.3f} "
+                          f"mean={scores.mean():.3f} std={scores.std():.3f}")
             step_info = agent.sol_info[-1]
             obs_dict = step_info.get('obs_dict', {})
             step_log = {
