@@ -54,10 +54,12 @@ ROBOMIMIC_DEFAULT_OBS_KEYS = [
 def get_ind(vid, index, ds="ego4d"):
     if ds == "ego4d":
         return torchvision.io.read_image(f"{vid}{index:06}.jpg")
+    elif ds == "kitchen-image":
+        return torchvision.io.read_image(f"{vid}/img{index}.png")
     else:
         try:
             return torchvision.io.read_image(f"{vid}/{index}.jpg")
-        except: 
+        except:
             return torchvision.io.read_image(f"{vid}/{index}.png")
 
 ## Data Loader for VIP
@@ -264,6 +266,60 @@ class StateIQLBuffer(IterableDataset):
         ob = torch.cat([s, g], dim=-1)
         ob_next = torch.cat([s_next, g], dim=-1)
         return (ob, a, r, discount, ob_next)
+
+    def __iter__(self):
+        while True:
+            yield self._sample()
+
+
+class ImageVIPBuffer(IterableDataset):
+    def __init__(self, datapath, frame_stack=1, datasource="kitchen-image"):
+        self.datapath = datapath
+        self.frame_stack = frame_stack
+        self.datasource = datasource
+        self.episodes = []
+        for episode in sorted(glob.glob(f"{datapath}/traj*")):
+            episode_len = len(glob.glob(f"{episode}/img*.png"))
+            if episode_len > frame_stack + 1:
+                self.episodes.append((episode, episode_len))
+
+    def _load_stacked_obs(self, episode_path, center_idx):
+        frames = []
+        for k in range(self.frame_stack):
+            idx = max(0, center_idx - self.frame_stack + k + 1)
+            frames.append(get_ind(episode_path, idx, self.datasource))
+        return torch.cat(frames, dim=0)
+
+    def get_trajectory(self):
+        episode_ind = np.random.randint(0, len(self.episodes))
+        episode_path, episode_len = self.episodes[episode_ind]
+        frames = []
+        for i in range(episode_len):
+            frames.append(get_ind(episode_path, i, self.datasource))
+        return torch.stack(frames).float()
+
+    def _sample(self):
+        episode_ind = np.random.randint(0, len(self.episodes))
+        episode_path, episode_len = self.episodes[episode_ind]
+
+         # Sample (o_t, o_k, o_k+1, o_T) for VIP training
+        start_ind = np.random.randint(0, episode_len - 2)
+        end_ind = np.random.randint(start_ind + 1, episode_len)
+        s0_ind_vip = np.random.randint(start_ind, end_ind)
+        s1_ind_vip = min(s0_ind_vip + 1, end_ind)
+
+        # Self-supervised reward (always -1)
+        reward = float(s0_ind_vip == end_ind) - 1
+
+        # Load stacked observations
+        ob_start = self._load_stacked_obs(episode_path, start_ind)
+        ob_goal = self._load_stacked_obs(episode_path, end_ind)
+        ob_t = self._load_stacked_obs(episode_path, s0_ind_vip)
+        ob_t1 = self._load_stacked_obs(episode_path, s1_ind_vip)
+
+        obs = torch.stack([ob_start, ob_goal, ob_t, ob_t1])
+
+        return (obs, reward)
 
     def __iter__(self):
         while True:

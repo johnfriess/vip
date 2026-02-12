@@ -16,6 +16,7 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 from vip.utils import utils
+from vip.utils.data_loaders import STATE_DATASETS
 from vip.utils.logger import Logger
 import time
 
@@ -44,6 +45,7 @@ class Workspace:
         obs_keys = self.cfg.get('obs_keys', None)
         filter_key = self.cfg.get('filter_key', None)
         use_states = self.cfg.get('use_states', False)
+        frame_stack = self.cfg.get('frame_stack', 1)
 
         self.train_iterable = utils.create_buffer(
             model_type=self.cfg.model,
@@ -54,7 +56,8 @@ class Workspace:
             use_achieved_goal=self.cfg.use_achieved_goal,
             obs_keys=obs_keys,
             filter_key=filter_key,
-            use_states=use_states
+            use_states=use_states,
+            frame_stack=frame_stack
         )
         self.val_iterable = utils.create_buffer(
             model_type=self.cfg.model,
@@ -65,7 +68,8 @@ class Workspace:
             use_achieved_goal=self.cfg.use_achieved_goal,
             obs_keys=obs_keys,
             filter_key=None,  # Use all data for validation
-            use_states=use_states
+            use_states=use_states,
+            frame_stack=frame_stack
         )
 
         self.train_loader = iter(torch.utils.data.DataLoader(self.train_iterable,
@@ -80,20 +84,23 @@ class Workspace:
         ## Infer state dimensions from dataset
         sample_batch = next(self.train_loader)
 
+        state_dim = None
+        action_dim = None
         if self.cfg.model == 'iql':
             ob, action = sample_batch[0], sample_batch[1]
             state_dim = ob.shape[-1]
             action_dim = action.shape[-1]
-        elif self.cfg.model in ['vip', 'derail']:
+        elif self.cfg.model in ['vip', 'derail'] and self.cfg.dataset in STATE_DATASETS:
             ob = sample_batch[0]
             state_dim = ob.shape[-1]
-            action_dim = None
 
         OmegaConf.set_struct(cfg.agent, False)
         if state_dim is not None:
             cfg.agent.state_dim = state_dim
         if action_dim is not None:
             cfg.agent.action_dim = action_dim
+        if frame_stack > 1:
+            cfg.agent.input_channels = frame_stack * 3
         OmegaConf.set_struct(cfg.agent, True)
 
         ## Init Model

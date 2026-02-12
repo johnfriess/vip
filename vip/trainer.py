@@ -45,7 +45,7 @@ class VIPTrainer():
         if datasource not in STATE_DATASETS:
             H = b_f.shape[-2]
             W = b_f.shape[-1]
-            b_im_r = b_f.reshape(bs*stack_size, 3, H, W)
+            b_im_r = b_f.reshape(bs*stack_size, -1, H, W)
             alles = model(b_im_r)
         else:
             state_dim = b_f.shape[-1]

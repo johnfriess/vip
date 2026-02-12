@@ -17,7 +17,7 @@ from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
 from vip.utils.data_loaders import (
     STATE_DATASETS, VIPBuffer, StateVIPBuffer, StateIQLBuffer,
-    RobomimicVIPBuffer, RobomimicIQLBuffer
+    RobomimicVIPBuffer, RobomimicIQLBuffer, ImageVIPBuffer
 )
 from vip.models.model_derail import StateMultilinearDERAIL, StateEuclideanDERAIL
 from vip.trainer import VIPTrainer, IQLTrainer, DERAILTrainer
@@ -170,32 +170,32 @@ def schedule(schdl, step):
     raise NotImplementedError(schdl)
 
 def create_buffer(model_type='vip', datasource='ego4d', datapath=None, num_workers=10, doaug="none",
-                  use_achieved_goal=False, obs_keys=None, filter_key=None, use_states=False):
-    # Check if this is a robomimic HDF5 dataset
-    if datapath and datapath.endswith('.hdf5'):
-        if model_type in ['vip', 'derail']:
+                  use_achieved_goal=False, obs_keys=None, filter_key=None, use_states=False,
+                  frame_stack=1):
+    if model_type in ['vip', 'derail']:
+        if datasource == 'kitchen-image':
+            return ImageVIPBuffer(datapath=datapath, frame_stack=frame_stack, datasource=datasource)
+        elif datapath and datapath.endswith('.hdf5'):
             return RobomimicVIPBuffer(
                 hdf5_path=datapath,
                 obs_keys=obs_keys,
                 filter_key=filter_key,
                 use_states=use_states
             )
-        elif model_type == 'iql':
+        elif datasource in STATE_DATASETS:
+            return StateVIPBuffer(datasource, use_achieved_goal=use_achieved_goal)
+        else:
+            return VIPBuffer(datasource, datapath, num_workers, doaug)
+    elif model_type == 'iql':
+        if datapath and datapath.endswith('.hdf5'):
             return RobomimicIQLBuffer(
                 hdf5_path=datapath,
                 obs_keys=obs_keys,
                 filter_key=filter_key,
                 use_states=use_states
             )
-
-    # Original logic for D4RL and ego4d datasets
-    if model_type in ['vip', 'derail']:
-        if datasource not in STATE_DATASETS:
-            return VIPBuffer(datasource, datapath, num_workers, doaug)
         else:
-            return StateVIPBuffer(datasource, use_achieved_goal=use_achieved_goal)
-    elif model_type == 'iql':
-        return StateIQLBuffer(datasource)
+            return StateIQLBuffer(datasource)
 
 def create_trainer(model_type='vip', eval_freq=1000):
     if model_type == 'vip':
@@ -209,7 +209,7 @@ def visualize_trajectory(model, model_type, datasource, buffer, device, datapath
     # Skip visualization for image-based datasets (ego4d, video datasets)
     # Allow visualization for state-based datasets (D4RL, robomimic)
     is_robomimic = datapath and datapath.endswith('.hdf5')
-    if not is_robomimic and datasource not in STATE_DATASETS:
+    if not is_robomimic and datasource not in STATE_DATASETS and datasource != 'kitchen-image':
         return
 
     traj = buffer.get_trajectory().to(device)

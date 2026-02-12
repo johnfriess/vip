@@ -16,7 +16,7 @@ from torchvision.utils import save_image
 import torchvision.transforms as T
 
 class VIP(nn.Module):
-    def __init__(self, device="cuda", lr=1e-4, hidden_dim=1024, size=50, l2weight=1.0, l1weight=1.0, gamma=0.98, num_negatives=0):
+    def __init__(self, device="cuda", lr=1e-4, hidden_dim=1024, size=50, l2weight=1.0, l1weight=1.0, gamma=0.98, num_negatives=0, input_channels=3):
         super().__init__()
         self.device = device
         self.l2weight = l2weight
@@ -26,6 +26,7 @@ class VIP(nn.Module):
         self.gamma = gamma
         self.size = size # Resnet size
         self.num_negatives = num_negatives
+        self.input_channels = input_channels
 
         ## Distances and Metrics
         self.cs = torch.nn.CosineSimilarity(1)
@@ -49,10 +50,15 @@ class VIP(nn.Module):
             self.outdim = 768
             self.convnet = AutoModel.from_config(config = AutoConfig.from_pretrained('google/vit-base-patch32-224-in21k')).to(self.device)
 
+        # Replace first conv layer for frame stacking (input_channels != 3)
+        if input_channels > 3 and size > 0:
+            self.convnet.conv1 = nn.Conv2d(input_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+
+        n_frames = input_channels // 3
         if self.size == 0:
-            self.normlayer = transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+            self.normlayer = transforms.Normalize(mean=[0.5, 0.5, 0.5] * n_frames, std=[0.5, 0.5, 0.5] * n_frames)
         else:
-            self.normlayer = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            self.normlayer = transforms.Normalize(mean=[0.485, 0.456, 0.406] * n_frames, std=[0.229, 0.224, 0.225] * n_frames)
 
         if hidden_dim  > 0:
             self.convnet.fc = nn.Linear(self.outdim, hidden_dim)
@@ -66,9 +72,8 @@ class VIP(nn.Module):
 
     ## Forward Call (im --> representation)
     def forward(self, obs):
-        obs_shape = obs.shape[1:]
         # if not already resized and cropped, then add those in preprocessing
-        if obs_shape != (3, 224, 224):
+        if obs.shape[-2:] != (224, 224):
             preprocess = nn.Sequential(
                         transforms.Resize(256),
                         transforms.CenterCrop(224),

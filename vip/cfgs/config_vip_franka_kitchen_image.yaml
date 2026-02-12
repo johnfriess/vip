@@ -1,0 +1,44 @@
+defaults:
+  - _self_
+  - override hydra/launcher:  local
+  - override hydra/output:  local
+
+# snapshot
+save_snapshot: false
+load_snap: ""
+
+# replay buffer
+num_workers: 4
+batch_size: 16
+train_steps: 101
+eval_freq: 1000
+
+# misc
+seed: 1
+device: cuda
+
+# experiment
+experiment: train_model
+model: vip
+wandbuser:
+wandbproject:
+
+# data
+# Set datapath to one of:
+#   /data/siddhant/vip/vis_data/kitchen-mixed-v0
+#   /data/siddhant/vip/vis_data/kitchen-complete-v0
+dataset: kitchen-image
+datapath: /data/siddhant/vip/vis_data/kitchen-mixed-v0
+doaug: "none"
+use_achieved_goal: false
+frame_stack: 1
+
+agent:
+  _target_: vip.models.model_vip.VIP
+  device: ${device}
+  lr: 1e-3
+  hidden_dim: 64
+  size: 18
+  l2weight: 0.001
+  l1weight: 0.001
+  num_negatives: 0
