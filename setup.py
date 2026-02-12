@@ -43,7 +43,7 @@ setup(
     'wandb',
     "gymnasium",
     "gymnasium-robotics",
-    "minari[hf]>=0.5.0",
+    "minari[hf,hdf5]>=0.5.0",
     "dm-control==1.0.8",
     "mujoco==2.3.7",
     "pyparsing==2.4.7",
