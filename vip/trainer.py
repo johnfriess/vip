@@ -228,7 +228,6 @@ class DERAILTrainer():
 
         ## DERAIL Loss
         if datasource not in STATE_DATASETS:
-            # Image path — for ImageEuclideanDERAIL
             H = b_f.shape[-2]
             W = b_f.shape[-1]
             b_im_r = b_f.reshape(bs * stack_size, -1, H, W)
