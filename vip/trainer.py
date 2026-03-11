@@ -15,7 +15,7 @@ import time
 import copy
 import torchvision.transforms as T
 from vip.utils.data_loaders import STATE_DATASETS
-from vip.models.model_derail import StateEuclideanDERAIL, StateMultilinearDERAIL
+from vip.models.model_derail import StateEuclideanDERAIL, StateMultilinearDERAIL, ImageEuclideanDERAIL
 
 epsilon = 1e-8
 def do_nothing(x): return x
@@ -191,6 +191,17 @@ class DERAILTrainer():
             out.append(gn - coef * gc)
         return out
     
+    def _log_gradient_metrics(self, metrics, g_init, g_s, g_s_next):
+        flat_init = torch.cat([g.flatten() for g in g_init])
+        flat_s = torch.cat([g.flatten() for g in g_s])
+        flat_sn = torch.cat([g.flatten() for g in g_s_next])
+        metrics['grad_init_norm'] = flat_init.norm().item()
+        metrics['grad_s_norm'] = flat_s.norm().item()
+        metrics['grad_s_next_norm'] = flat_sn.norm().item()
+        metrics['cos_s_snext'] = F.cosine_similarity(flat_s.unsqueeze(0), flat_sn.unsqueeze(0)).item()
+        metrics['cos_init_s'] = F.cosine_similarity(flat_init.unsqueeze(0), flat_s.unsqueeze(0)).item()
+        metrics['cos_init_snext'] = F.cosine_similarity(flat_init.unsqueeze(0), flat_sn.unsqueeze(0)).item()
+
     def _pearson_divergence(self, r, gamma, V_s_next, V_s):
         delta = r + gamma * V_s_next - V_s
         clamped_delta = torch.clamp(delta / 2 + 1, min=0.0)
@@ -212,11 +223,31 @@ class DERAILTrainer():
 
         t2 = time.time()
 
-        bs, stack_size, state_dim = b_f.shape
+        bs = b_f.shape[0]
+        stack_size = b_f.shape[1]
 
         ## DERAIL Loss
-        if isinstance(model.module, StateEuclideanDERAIL):
-            b_st = b_f.reshape(bs*stack_size, state_dim)
+        if datasource not in STATE_DATASETS:
+            # Image path — for ImageEuclideanDERAIL
+            H = b_f.shape[-2]
+            W = b_f.shape[-1]
+            b_im_r = b_f.reshape(bs * stack_size, -1, H, W)
+            alles = model(b_im_r)
+            alle = alles.reshape(bs, stack_size, -1)
+            e0 = alle[:, 0] # initial, o_0
+            eg = alle[:, 1] # final, o_g
+            es0_derail = alle[:, 2] # o_t
+            es1_derail = alle[:, 3] # o_t+1
+
+            t3 = time.time()
+
+            V_0 = model.module.sim(e0, eg)
+            r = b_reward.to(V_0.device)
+            V_s = model.module.sim(es0_derail, eg)
+            V_s_next = model.module.sim(es1_derail, eg)
+        elif isinstance(model.module, StateEuclideanDERAIL):
+            state_dim = b_f.shape[-1]
+            b_st = b_f.reshape(bs * stack_size, state_dim)
             alles = model(b_st)
             alle = alles.reshape(bs, stack_size, -1)
             e0 = alle[:, 0] # initial, o_0
@@ -248,9 +279,23 @@ class DERAILTrainer():
             V_s_next = model.module.value(h1_s1_derail, h2_s1_derail, h3_s1_derail)
 
         init_loss = (1-model.module.conservative_weight) * (1-model.module.gamma) * V_0.mean()
-        V_loss = init_loss + model.module.conservative_weight * self._pearson_divergence(r, model.module.gamma, V_s_next, V_s).mean()
-        metrics['derail_loss'] = V_loss.item()
-        
+        pearson = self._pearson_divergence(r, model.module.gamma, V_s_next, V_s)
+        V_loss = init_loss + model.module.conservative_weight * pearson.mean()
+
+        delta = r + model.module.gamma * V_s_next - V_s
+        metrics['total_loss'] = V_loss.item()
+        metrics['init_loss'] = init_loss.item()
+        metrics['pearson_mean'] = pearson.mean().item()
+        metrics['V_0_mean'] = V_0.mean().item()
+        metrics['V_s_mean'] = V_s.mean().item()
+        metrics['V_s_next_mean'] = V_s_next.mean().item()
+        metrics['delta_mean'] = delta.mean().item()
+        if isinstance(model.module, StateMultilinearDERAIL):
+            embs = torch.stack([h1_0, h1_s0_derail, h1_s1_derail])
+        else:
+            embs = alle
+        metrics['emb_norm_mean'] = embs.norm(dim=-1).mean().item()
+
         t4 = time.time()
 
         if not eval:
@@ -264,10 +309,14 @@ class DERAILTrainer():
             g_s = torch.autograd.grad(s_loss, params, retain_graph=True)
             g_s_next = torch.autograd.grad(s_next_loss, params, retain_graph=True)
 
+            self._log_gradient_metrics(metrics, g_init, g_s, g_s_next)
+
             g_s_next = self._orthogonalize(g_s_next, g_s)
 
             for p, gi, gc, gn in zip(params, g_init, g_s, g_s_next):
                 p.grad = gi + gc + gn
+
+            metrics['total_grad_norm'] = torch.nn.utils.clip_grad_norm_(params, float('inf')).item()
 
             model.module.encoder_opt.step()
         t5 = time.time()

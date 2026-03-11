@@ -17,7 +17,7 @@ from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
 from vip.utils.data_loaders import (
     STATE_DATASETS, VIPBuffer, StateVIPBuffer, StateIQLBuffer,
-    RobomimicVIPBuffer, RobomimicIQLBuffer, ImageVIPBuffer
+    RobomimicVIPBuffer, RobomimicIQLBuffer
 )
 from vip.models.model_derail import StateMultilinearDERAIL, StateEuclideanDERAIL
 from vip.trainer import VIPTrainer, IQLTrainer, DERAILTrainer
@@ -174,7 +174,7 @@ def create_buffer(model_type='vip', datasource='ego4d', datapath=None, num_worke
                   frame_stack=1):
     if model_type in ['vip', 'derail']:
         if datasource == 'kitchen-image':
-            return ImageVIPBuffer(datapath=datapath, frame_stack=frame_stack, datasource=datasource)
+            return VIPBuffer(datasource, datapath, num_workers, doaug, frame_stack)
         elif datapath and datapath.endswith('.hdf5'):
             return RobomimicVIPBuffer(
                 hdf5_path=datapath,
@@ -185,7 +185,7 @@ def create_buffer(model_type='vip', datasource='ego4d', datapath=None, num_worke
         elif datasource in STATE_DATASETS:
             return StateVIPBuffer(datasource, use_achieved_goal=use_achieved_goal)
         else:
-            return VIPBuffer(datasource, datapath, num_workers, doaug)
+            return VIPBuffer(datasource, datapath, num_workers, doaug, frame_stack)
     elif model_type == 'iql':
         if datapath and datapath.endswith('.hdf5'):
             return RobomimicIQLBuffer(
@@ -205,9 +205,7 @@ def create_trainer(model_type='vip', eval_freq=1000):
     elif model_type == 'derail':
         return DERAILTrainer(eval_freq)
 
-def visualize_trajectory(model, model_type, datasource, buffer, device, datapath=None):
-    # Skip visualization for image-based datasets (ego4d, video datasets)
-    # Allow visualization for state-based datasets (D4RL, robomimic)
+def visualize_trajectory(model, model_type, datasource, buffer, device, datapath=None, output_path=None):
     is_robomimic = datapath and datapath.endswith('.hdf5')
     if not is_robomimic and datasource not in STATE_DATASETS and datasource != 'kitchen-image':
         return
@@ -236,5 +234,66 @@ def visualize_trajectory(model, model_type, datasource, buffer, device, datapath
     plt.xlabel("Frame")
     plt.ylabel(f"{model_type.upper()} Value")
     plt.title(f"{model_type.upper()} Value along Expert Trajectory ({datasource})")
-    plt.savefig(f"{model_type}_trajectory_visualization.png")
+    plt.savefig(output_path or f"{model_type}_trajectory_visualization.png")
+    plt.close()
+
+
+def visualize_trajectory_with_frames(model, model_type, datasource, buffer, device,
+                                     goal_fraction=0.25, num_sampled_frames=10,
+                                     datapath=None, output_path=None):
+    is_robomimic = datapath and datapath.endswith('.hdf5')
+    if not is_robomimic and datasource not in STATE_DATASETS and datasource != 'kitchen-image':
+        return
+
+    traj = buffer.get_trajectory().to(device)
+    traj_len = traj.shape[0]
+    goal_idx = min(int(goal_fraction * (traj_len - 1)), traj_len - 1)
+
+    with torch.no_grad():
+        etraj = model(traj)
+        eg = etraj[goal_idx]
+        if model_type == 'vip':
+            values = model.module.sim(etraj, eg).cpu()
+        elif model_type == 'derail' and isinstance(model.module, StateEuclideanDERAIL):
+            values = model.module.sim(etraj, eg).cpu()
+        else:
+            return
+
+    values_np = values[:goal_idx + 1].numpy()
+
+    # Pick evenly-spaced frame indices up to the goal
+    frame_indices = np.linspace(0, goal_idx, num_sampled_frames, dtype=int)
+
+    # Get raw frames (traj is [T, C, H, W] in [0,255])
+    raw_frames = traj.cpu()
+
+    fig = plt.figure(figsize=(14, 6))
+    # Top row: sampled frames
+    gs = fig.add_gridspec(2, num_sampled_frames, height_ratios=[1, 2], hspace=0.3)
+
+    for i, fidx in enumerate(frame_indices):
+        ax_img = fig.add_subplot(gs[0, i])
+        frame = raw_frames[fidx].permute(1, 2, 0).numpy()
+        if frame.max() > 2.0:
+            frame = frame / 255.0
+        ax_img.imshow(np.clip(frame, 0, 1))
+        ax_img.set_title(f"f{fidx}", fontsize=8)
+        ax_img.axis('off')
+
+    # Bottom: value curve
+    ax_val = fig.add_subplot(gs[1, :])
+    ax_val.plot(range(goal_idx + 1), values_np, linewidth=1.5)
+
+    # Mark sampled frames on the curve
+    for fidx in frame_indices:
+        ax_val.axvline(x=fidx, color='gray', linestyle=':', alpha=0.4, linewidth=0.8)
+        ax_val.plot(fidx, values_np[fidx], 'o', color='red', markersize=5)
+
+    ax_val.axvline(x=goal_idx, color='r', linestyle='--', alpha=0.7, label=f'goal @ {goal_idx}')
+    ax_val.set_xlabel("Frame")
+    ax_val.set_ylabel(f"{model_type.upper()} Value")
+    ax_val.set_title(f"{model_type.upper()} Value → Goal @ {int(goal_fraction*100)}% (frame {goal_idx})")
+    ax_val.legend()
+
+    plt.savefig(output_path or f"{model_type}_frames_value.png", dpi=150, bbox_inches='tight')
     plt.close()

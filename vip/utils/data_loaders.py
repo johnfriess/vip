@@ -32,11 +32,10 @@ STATE_DATASETS = [
     "D4RL/kitchen/complete-v2",
     "D4RL/kitchen/partial-v2",
     "D4RL/kitchen/mixed-v2",
-    "D4RL/kitchen/all-v2",  # Combined: complete + partial + mixed
-    "robomimic",
+    "D4RL/kitchen/all-v2",
+    "robomimic"
 ]
 
-# Kitchen datasets that get combined when using "all-v2"
 KITCHEN_COMBINED_SOURCES = [
     "D4RL/kitchen/complete-v2",
     "D4RL/kitchen/partial-v2",
@@ -64,13 +63,14 @@ def get_ind(vid, index, ds="ego4d"):
 
 ## Data Loader for VIP
 class VIPBuffer(IterableDataset):
-    def __init__(self, datasource='ego4d', datapath=None, num_workers=10, doaug = "none"):
+    def __init__(self, datasource='ego4d', datapath=None, num_workers=10, doaug="none", frame_stack=1):
         self._num_workers = max(1, num_workers)
         self.datasource = datasource
         self.datapath = datapath
         assert(datapath is not None)
         self.doaug = doaug
-        
+        self.frame_stack = frame_stack
+
         # Augmentations
         self.preprocess = torch.nn.Sequential(
                         transforms.Resize(256),
@@ -89,57 +89,87 @@ class VIPBuffer(IterableDataset):
             self.manifest = pd.read_csv(f"{self.datapath}/manifest.csv")
             print(self.manifest)
             self.ego4dlen = len(self.manifest)
+        elif self.datasource == "kitchen-image":
+            self.episodes = []
+            for episode in sorted(glob.glob(f"{datapath}/traj*")):
+                episode_len = len(glob.glob(f"{episode}/img*.png"))
+                if episode_len > frame_stack + 1:
+                    self.episodes.append((episode, episode_len))
 
-    def _sample(self):
-        # Sample a video from datasource
+    def _load_stacked_obs(self, vid, idx):
+        frames = []
+        for k in range(self.frame_stack):
+            frame_idx = max(0, idx - self.frame_stack + k + 1)
+            frames.append(get_ind(vid, frame_idx, self.datasource))
+        return torch.cat(frames, dim=0)
+
+    def _get_vid_and_len(self):
         if self.datasource == 'ego4d':
             vidid = np.random.randint(0, self.ego4dlen)
             m = self.manifest.iloc[vidid]
-            vidlen = m["len"]
-            vid = m["path"]
-        else: 
+            return m["path"], m["len"]
+        elif self.datasource == 'kitchen-image':
+            episode_ind = np.random.randint(0, len(self.episodes))
+            return self.episodes[episode_ind]
+        else:
             video_paths = glob.glob(f"{self.datapath}/[0-9]*")
-            num_vid = len(video_paths)
-
-            video_id = np.random.randint(0, int(num_vid)) 
-            vid = f"{video_paths[video_id]}"
-
-            # Video frames must be .png or .jpg
+            video_id = np.random.randint(0, len(video_paths))
+            vid = video_paths[video_id]
             vidlen = len(glob.glob(f'{vid}/*.png'))
             if vidlen == 0:
                 vidlen = len(glob.glob(f'{vid}/*.jpg'))
+            return vid, vidlen
+
+    def get_trajectory(self):
+        vid, vidlen = self._get_vid_and_len()
+        frames = []
+        for i in range(vidlen):
+            if self.frame_stack > 1:
+                frames.append(self._load_stacked_obs(vid, i))
+            else:
+                frames.append(get_ind(vid, i, self.datasource))
+        return torch.stack(frames).float()
+
+    def _sample(self):
+        vid, vidlen = self._get_vid_and_len()
 
         # Sample (o_t, o_k, o_k+1, o_T) for VIP training
-        start_ind = np.random.randint(0, vidlen-2)  
+        start_ind = np.random.randint(0, vidlen-2)
         end_ind = np.random.randint(start_ind+1, vidlen)
 
         s0_ind_vip = np.random.randint(start_ind, end_ind)
         s1_ind_vip = min(s0_ind_vip+1, end_ind)
-        
+
         # Self-supervised reward (this is always -1)
         reward = float(s0_ind_vip == end_ind) - 1
 
-        if self.doaug == "rctraj":
-            ### Encode each image in the video at once the same way
-            im0 = get_ind(vid, start_ind, self.datasource) 
+        # Load frames (with frame stacking if frame_stack > 1)
+        if self.frame_stack > 1:
+            im0 = self._load_stacked_obs(vid, start_ind)
+            img = self._load_stacked_obs(vid, end_ind)
+            imts0_vip = self._load_stacked_obs(vid, s0_ind_vip)
+            imts1_vip = self._load_stacked_obs(vid, s1_ind_vip)
+        else:
+            im0 = get_ind(vid, start_ind, self.datasource)
             img = get_ind(vid, end_ind, self.datasource)
             imts0_vip = get_ind(vid, s0_ind_vip, self.datasource)
             imts1_vip = get_ind(vid, s1_ind_vip, self.datasource)
-            
+
+        # Apply augmentation
+        if self.doaug == "rctraj":
+            ### Encode each image in the video at once the same way
             allims = torch.stack([im0, img, imts0_vip, imts1_vip], 0)
             allims_aug = self.aug(allims / 255.0) * 255.0
-
             im0 = allims_aug[0]
             img = allims_aug[1]
             imts0_vip = allims_aug[2]
             imts1_vip = allims_aug[3]
-
         else:
             ### Encode each image individually
-            im0 = self.aug(get_ind(vid, start_ind, self.datasource) / 255.0) * 255.0
-            img = self.aug(get_ind(vid, end_ind, self.datasource) / 255.0) * 255.0
-            imts0_vip = self.aug(get_ind(vid, s0_ind_vip, self.datasource) / 255.0) * 255.0
-            imts1_vip = self.aug(get_ind(vid, s1_ind_vip, self.datasource) / 255.0) * 255.0
+            im0 = self.aug(im0 / 255.0) * 255.0
+            img = self.aug(img / 255.0) * 255.0
+            imts0_vip = self.aug(imts0_vip / 255.0) * 255.0
+            imts1_vip = self.aug(imts1_vip / 255.0) * 255.0
 
         im = torch.stack([im0, img, imts0_vip, imts1_vip])
         im = self.preprocess(im)
@@ -270,61 +300,6 @@ class StateIQLBuffer(IterableDataset):
     def __iter__(self):
         while True:
             yield self._sample()
-
-
-class ImageVIPBuffer(IterableDataset):
-    def __init__(self, datapath, frame_stack=1, datasource="kitchen-image"):
-        self.datapath = datapath
-        self.frame_stack = frame_stack
-        self.datasource = datasource
-        self.episodes = []
-        for episode in sorted(glob.glob(f"{datapath}/traj*")):
-            episode_len = len(glob.glob(f"{episode}/img*.png"))
-            if episode_len > frame_stack + 1:
-                self.episodes.append((episode, episode_len))
-
-    def _load_stacked_obs(self, episode_path, center_idx):
-        frames = []
-        for k in range(self.frame_stack):
-            idx = max(0, center_idx - self.frame_stack + k + 1)
-            frames.append(get_ind(episode_path, idx, self.datasource))
-        return torch.cat(frames, dim=0)
-
-    def get_trajectory(self):
-        episode_ind = np.random.randint(0, len(self.episodes))
-        episode_path, episode_len = self.episodes[episode_ind]
-        frames = []
-        for i in range(episode_len):
-            frames.append(get_ind(episode_path, i, self.datasource))
-        return torch.stack(frames).float()
-
-    def _sample(self):
-        episode_ind = np.random.randint(0, len(self.episodes))
-        episode_path, episode_len = self.episodes[episode_ind]
-
-         # Sample (o_t, o_k, o_k+1, o_T) for VIP training
-        start_ind = np.random.randint(0, episode_len - 2)
-        end_ind = np.random.randint(start_ind + 1, episode_len)
-        s0_ind_vip = np.random.randint(start_ind, end_ind)
-        s1_ind_vip = min(s0_ind_vip + 1, end_ind)
-
-        # Self-supervised reward (always -1)
-        reward = float(s0_ind_vip == end_ind) - 1
-
-        # Load stacked observations
-        ob_start = self._load_stacked_obs(episode_path, start_ind)
-        ob_goal = self._load_stacked_obs(episode_path, end_ind)
-        ob_t = self._load_stacked_obs(episode_path, s0_ind_vip)
-        ob_t1 = self._load_stacked_obs(episode_path, s1_ind_vip)
-
-        obs = torch.stack([ob_start, ob_goal, ob_t, ob_t1])
-
-        return (obs, reward)
-
-    def __iter__(self):
-        while True:
-            yield self._sample()
-
 
 class RobomimicVIPBuffer(IterableDataset):
     """Data loader for robomimic HDF5 datasets for VIP training.

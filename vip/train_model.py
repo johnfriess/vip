@@ -158,16 +158,6 @@ class Workspace:
 
                     self.save_snapshot()
             self._global_step += 1
-        
-        print("Visualizing Trajectory")
-        utils.visualize_trajectory(
-            model=self.model,
-            model_type=self.cfg.model,
-            datasource=self.cfg.dataset,
-            buffer=self.val_iterable,
-            device=self.device,
-            datapath=self.cfg.datapath
-        )
 
     def save_snapshot(self):
         snapshot = self.work_dir / f'snapshot_{self.global_step}.pt'
