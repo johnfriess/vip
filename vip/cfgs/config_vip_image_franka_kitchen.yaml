@@ -29,7 +29,6 @@ wandbproject:
 #   /data/siddhant/vip/vis_data/kitchen-complete-v0
 dataset: kitchen-image
 datapath: /data/siddhant/vip/vis_data/kitchen-mixed-v0
-viz_datapath: /data/siddhant/vip/vis_data/kitchen-complete-v0
 doaug: "rctraj"
 use_achieved_goal: false
 frame_stack: 1
