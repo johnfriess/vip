@@ -19,7 +19,7 @@ from vip.utils.data_loaders import (
     STATE_DATASETS, VIPBuffer, StateVIPBuffer, StateIQLBuffer,
     RobomimicVIPBuffer, RobomimicIQLBuffer
 )
-from vip.models.model_derail import StateMultilinearDERAIL, StateEuclideanDERAIL
+from vip.models.model_derail import StateMultilinearDERAIL, StateEuclideanDERAIL, ImageEuclideanDERAIL
 from vip.trainer import VIPTrainer, IQLTrainer, DERAILTrainer
 
 class eval_mode:
@@ -224,7 +224,7 @@ def visualize_trajectory(model, model_type, datasource, buffer, device, datapath
                 g_rep = g.unsqueeze(0).expand(traj.shape[0], -1)
                 h1, h2, h3 = model(traj, g_rep)
                 values = model.module.value(h1, h2, h3).cpu()
-            elif isinstance(model.module, StateEuclideanDERAIL):
+            elif isinstance(model.module, (StateEuclideanDERAIL, ImageEuclideanDERAIL)):
                 etraj = model(traj)
                 eg = etraj[-1]
                 values = model.module.sim(etraj, eg).cpu()
@@ -254,7 +254,7 @@ def visualize_trajectory_with_frames(model, model_type, datasource, buffer, devi
         eg = etraj[goal_idx]
         if model_type == 'vip':
             values = model.module.sim(etraj, eg).cpu()
-        elif model_type == 'derail' and isinstance(model.module, StateEuclideanDERAIL):
+        elif model_type == 'derail' and isinstance(model.module, (StateEuclideanDERAIL, ImageEuclideanDERAIL)):
             values = model.module.sim(etraj, eg).cpu()
         else:
             return
