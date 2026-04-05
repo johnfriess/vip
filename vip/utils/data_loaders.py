@@ -42,6 +42,12 @@ KITCHEN_COMBINED_SOURCES = [
     "D4RL/kitchen/mixed-v2",
 ]
 
+KITCHEN_IMAGE_ALL = "kitchen-image-all"
+KITCHEN_IMAGE_COMBINED_DATAPATHS = [
+    "/data/siddhant/vip/vis_data/kitchen-complete-v0",
+    "/data/siddhant/vip/vis_data/kitchen-mixed-v0",
+]
+
 # Default observation keys for robomimic low-dim datasets
 ROBOMIMIC_DEFAULT_OBS_KEYS = [
     "robot0_eef_pos",
@@ -53,7 +59,7 @@ ROBOMIMIC_DEFAULT_OBS_KEYS = [
 def get_ind(vid, index, ds="ego4d"):
     if ds == "ego4d":
         return torchvision.io.read_image(f"{vid}{index:06}.jpg")
-    elif ds == "kitchen-image":
+    elif ds in ("kitchen-image", KITCHEN_IMAGE_ALL):
         return torchvision.io.read_image(f"{vid}/img{index}.png")
     else:
         try:
@@ -63,13 +69,14 @@ def get_ind(vid, index, ds="ego4d"):
 
 ## Data Loader for VIP
 class VIPBuffer(IterableDataset):
-    def __init__(self, datasource='ego4d', datapath=None, num_workers=10, doaug="none", frame_stack=1):
+    def __init__(self, datasource='ego4d', datapath=None, num_workers=10, doaug="none", frame_stack=1, frame_combine=False):
         self._num_workers = max(1, num_workers)
         self.datasource = datasource
         self.datapath = datapath
-        assert(datapath is not None)
+        assert datapath is not None or datasource == KITCHEN_IMAGE_ALL
         self.doaug = doaug
         self.frame_stack = frame_stack
+        self.frame_combine = frame_combine  # non-overlapping pairs: obs[i] = [frame[i*fs], ..., frame[i*fs+fs-1]]
 
         # Augmentations
         self.preprocess = torch.nn.Sequential(
@@ -90,25 +97,46 @@ class VIPBuffer(IterableDataset):
             print(self.manifest)
             self.ego4dlen = len(self.manifest)
         elif self.datasource == "kitchen-image":
+            assert datapath is not None, "datapath required for kitchen-image"
             self.episodes = []
             for episode in sorted(glob.glob(f"{datapath}/traj*")):
                 episode_len = len(glob.glob(f"{episode}/img*.png"))
                 if episode_len > frame_stack + 1:
                     self.episodes.append((episode, episode_len))
+        elif self.datasource == KITCHEN_IMAGE_ALL:
+            self.episodes = []
+            for dp in KITCHEN_IMAGE_COMBINED_DATAPATHS:
+                for episode in sorted(glob.glob(f"{dp}/traj*")):
+                    episode_len = len(glob.glob(f"{episode}/img*.png"))
+                    if episode_len > frame_stack + 1:
+                        self.episodes.append((episode, episode_len))
+            print(f"kitchen-image-all: loaded {len(self.episodes)} episodes from {len(KITCHEN_IMAGE_COMBINED_DATAPATHS)} datasets")
 
     def _load_stacked_obs(self, vid, idx):
         frames = []
-        for k in range(self.frame_stack):
-            frame_idx = max(0, idx - self.frame_stack + k + 1)
-            frames.append(get_ind(vid, frame_idx, self.datasource))
+        if self.frame_combine:
+            # Non-overlapping: obs[i] = [frame[i*fs + k] for k in range(fs)]
+            for k in range(self.frame_stack):
+                frames.append(get_ind(vid, idx * self.frame_stack + k, self.datasource))
+        else:
+            # Sliding window: obs[i] = [frame[i-fs+1], ..., frame[i]]
+            for k in range(self.frame_stack):
+                frame_idx = max(0, idx - self.frame_stack + k + 1)
+                frames.append(get_ind(vid, frame_idx, self.datasource))
         return torch.cat(frames, dim=0)
+
+    def _effective_vidlen(self, vidlen):
+        """Returns the number of observations given raw frame count."""
+        if self.frame_combine and self.frame_stack > 1:
+            return vidlen // self.frame_stack
+        return vidlen
 
     def _get_vid_and_len(self):
         if self.datasource == 'ego4d':
             vidid = np.random.randint(0, self.ego4dlen)
             m = self.manifest.iloc[vidid]
             return m["path"], m["len"]
-        elif self.datasource == 'kitchen-image':
+        elif self.datasource in ('kitchen-image', KITCHEN_IMAGE_ALL):
             episode_ind = np.random.randint(0, len(self.episodes))
             return self.episodes[episode_ind]
         else:
@@ -122,8 +150,9 @@ class VIPBuffer(IterableDataset):
 
     def get_trajectory(self):
         vid, vidlen = self._get_vid_and_len()
+        eff_len = self._effective_vidlen(vidlen)
         frames = []
-        for i in range(vidlen):
+        for i in range(eff_len):
             if self.frame_stack > 1:
                 frames.append(self._load_stacked_obs(vid, i))
             else:
@@ -132,6 +161,7 @@ class VIPBuffer(IterableDataset):
 
     def _sample(self):
         vid, vidlen = self._get_vid_and_len()
+        vidlen = self._effective_vidlen(vidlen)
 
         # Sample (o_t, o_k, o_k+1, o_T) for VIP training
         start_ind = np.random.randint(0, vidlen-2)

@@ -46,6 +46,7 @@ class Workspace:
         filter_key = self.cfg.get('filter_key', None)
         use_states = self.cfg.get('use_states', False)
         frame_stack = self.cfg.get('frame_stack', 1)
+        frame_combine = self.cfg.get('frame_combine', False)
 
         self.train_iterable = utils.create_buffer(
             model_type=self.cfg.model,
@@ -57,7 +58,8 @@ class Workspace:
             obs_keys=obs_keys,
             filter_key=filter_key,
             use_states=use_states,
-            frame_stack=frame_stack
+            frame_stack=frame_stack,
+            frame_combine=frame_combine,
         )
         self.val_iterable = utils.create_buffer(
             model_type=self.cfg.model,
@@ -69,7 +71,8 @@ class Workspace:
             obs_keys=obs_keys,
             filter_key=None,  # Use all data for validation
             use_states=use_states,
-            frame_stack=frame_stack
+            frame_stack=frame_stack,
+            frame_combine=frame_combine,
         )
 
         self.train_loader = iter(torch.utils.data.DataLoader(self.train_iterable,

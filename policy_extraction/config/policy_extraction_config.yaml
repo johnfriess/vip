@@ -1,0 +1,47 @@
+# Policy Extraction from Frozen VIP Value Functions (AWR)
+#
+# Usage:
+#   python -m policy_extraction.run snapshot=/path/to/snapshot.pt
+#   python -m policy_extraction.run snapshot=/path/to/snapshot.pt datapath=/path/to/imgs frame_combine=true
+
+defaults:
+  - _self_
+  - override hydra/output: local
+
+# Pretrained value model
+snapshot: ""                          # REQUIRED: path to .pt snapshot
+dataset: ""                           # Minari dataset (state models only)
+datapath: ""                          # Image data dir (image models only)
+frame_stack: 1                        # Frames per observation (must match model's input_channels // 3)
+
+# Data loading
+num_goal_samples: 3
+batch_size: 256
+
+# Policy architecture
+policy_hidden_dims: [256, 256]
+log_std_init: -0.5
+
+# Method
+method: awr                           # "awr" or "gradual_awr"
+warmup_exponent: 2.0                  # gradual_awr: >1 = more BC early, <1 = more AWR early, 1 = linear
+
+# Training
+lr: 1e-4
+epochs: 100
+seed: 42
+temperature: 1.0                     # AWR temperature
+max_weight: 20.0                      # AWR max per-sample weight
+
+# Trainable encoder (image models only — policy learns its own CNN instead of using frozen VIP embeddings)
+trainable_encoder: false
+encoder_size: 18                      # ResNet variant (18 or 50)
+encoder_dim: 256                      # CNN output embedding dim
+
+# Device
+device: cuda
+
+# Evaluation (per-subtask, 4 subtasks)
+eval:
+  enabled: true
+  n_episodes: 10

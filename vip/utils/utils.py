@@ -16,7 +16,7 @@ from omegaconf import OmegaConf
 from torch import distributions as pyd
 from torch.distributions.utils import _standard_normal
 from vip.utils.data_loaders import (
-    STATE_DATASETS, VIPBuffer, StateVIPBuffer, StateIQLBuffer,
+    STATE_DATASETS, KITCHEN_IMAGE_ALL, VIPBuffer, StateVIPBuffer, StateIQLBuffer,
     RobomimicVIPBuffer, RobomimicIQLBuffer
 )
 from vip.models.model_derail import StateMultilinearDERAIL, StateEuclideanDERAIL, ImageEuclideanDERAIL
@@ -171,10 +171,10 @@ def schedule(schdl, step):
 
 def create_buffer(model_type='vip', datasource='ego4d', datapath=None, num_workers=10, doaug="none",
                   use_achieved_goal=False, obs_keys=None, filter_key=None, use_states=False,
-                  frame_stack=1):
+                  frame_stack=1, frame_combine=False):
     if model_type in ['vip', 'derail']:
-        if datasource == 'kitchen-image':
-            return VIPBuffer(datasource, datapath, num_workers, doaug, frame_stack)
+        if datasource in ('kitchen-image', KITCHEN_IMAGE_ALL):
+            return VIPBuffer(datasource, datapath, num_workers, doaug, frame_stack, frame_combine)
         elif datapath and datapath.endswith('.hdf5'):
             return RobomimicVIPBuffer(
                 hdf5_path=datapath,
@@ -207,7 +207,7 @@ def create_trainer(model_type='vip', eval_freq=1000):
 
 def visualize_trajectory(model, model_type, datasource, buffer, device, datapath=None, output_path=None):
     is_robomimic = datapath and datapath.endswith('.hdf5')
-    if not is_robomimic and datasource not in STATE_DATASETS and datasource != 'kitchen-image':
+    if not is_robomimic and datasource not in STATE_DATASETS and datasource not in ('kitchen-image', KITCHEN_IMAGE_ALL):
         return
 
     traj = buffer.get_trajectory().to(device)
@@ -242,7 +242,7 @@ def visualize_trajectory_with_frames(model, model_type, datasource, buffer, devi
                                      goal_fraction=0.25, num_sampled_frames=10,
                                      datapath=None, output_path=None):
     is_robomimic = datapath and datapath.endswith('.hdf5')
-    if not is_robomimic and datasource not in STATE_DATASETS and datasource != 'kitchen-image':
+    if not is_robomimic and datasource not in STATE_DATASETS and datasource not in ('kitchen-image', KITCHEN_IMAGE_ALL):
         return
 
     traj = buffer.get_trajectory().to(device)
@@ -264,27 +264,27 @@ def visualize_trajectory_with_frames(model, model_type, datasource, buffer, devi
     # Pick evenly-spaced frame indices up to the goal
     frame_indices = np.linspace(0, goal_idx, num_sampled_frames, dtype=int)
 
-    # Get raw frames (traj is [T, C, H, W] in [0,255])
+    is_state = datasource in STATE_DATASETS or (is_robomimic)
     raw_frames = traj.cpu()
 
-    fig = plt.figure(figsize=(14, 6))
-    # Top row: sampled frames
-    gs = fig.add_gridspec(2, num_sampled_frames, height_ratios=[1, 2], hspace=0.3)
+    if is_state:
+        # State-based: value curve only (no images to display)
+        fig, ax_val = plt.subplots(figsize=(10, 4))
+    else:
+        # Image-based: frames on top row, value curve below
+        fig = plt.figure(figsize=(14, 6))
+        gs = fig.add_gridspec(2, num_sampled_frames, height_ratios=[1, 2], hspace=0.3)
+        for i, fidx in enumerate(frame_indices):
+            ax_img = fig.add_subplot(gs[0, i])
+            frame = raw_frames[fidx].permute(1, 2, 0).numpy()
+            if frame.max() > 2.0:
+                frame = frame / 255.0
+            ax_img.imshow(np.clip(frame[..., -3:], 0, 1))
+            ax_img.set_title(f"f{fidx}", fontsize=8)
+            ax_img.axis('off')
+        ax_val = fig.add_subplot(gs[1, :])
 
-    for i, fidx in enumerate(frame_indices):
-        ax_img = fig.add_subplot(gs[0, i])
-        frame = raw_frames[fidx].permute(1, 2, 0).numpy()
-        if frame.max() > 2.0:
-            frame = frame / 255.0
-        ax_img.imshow(np.clip(frame, 0, 1))
-        ax_img.set_title(f"f{fidx}", fontsize=8)
-        ax_img.axis('off')
-
-    # Bottom: value curve
-    ax_val = fig.add_subplot(gs[1, :])
     ax_val.plot(range(goal_idx + 1), values_np, linewidth=1.5)
-
-    # Mark sampled frames on the curve
     for fidx in frame_indices:
         ax_val.axvline(x=fidx, color='gray', linestyle=':', alpha=0.4, linewidth=0.8)
         ax_val.plot(fidx, values_np[fidx], 'o', color='red', markersize=5)
