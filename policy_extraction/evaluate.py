@@ -2,7 +2,76 @@ import numpy as np
 import torch
 import minari
 from PIL import Image
+from d4rl.kitchen.kitchen_envs import OBS_ELEMENT_INDICES, OBS_ELEMENT_GOALS, BONUS_THRESH
 
+
+KITCHEN_TASKS = ['microwave', 'kettle', 'light switch', 'slide cabinet']
+
+
+def detect_task_completion_times_minari(episode_obs):
+    """Scan Minari episode observations to find first completion timestep per task.
+
+    Args:
+        episode_obs: the full ep.observations dict with keys
+                     'observation', 'achieved_goal', 'desired_goal'.
+
+    Returns:
+        dict mapping task_name -> first completion timestep (obs index), or None.
+    """
+    achieved = episode_obs['achieved_goal']
+    desired = episode_obs['desired_goal']
+    completion = {t: None for t in KITCHEN_TASKS}
+    n_obs = len(achieved[KITCHEN_TASKS[0]])
+
+    for t in range(n_obs):
+        for task in KITCHEN_TASKS:
+            if completion[task] is not None:
+                continue
+            dist = np.linalg.norm(achieved[task][t] - desired[task][t])
+            if dist < BONUS_THRESH:
+                completion[task] = t
+    return completion
+
+
+def detect_task_completion_times_d4rl(observations):
+    """Scan d4rl 60D observations to find first completion timestep per task.
+
+    Args:
+        observations: (T, 60) array of d4rl observations.
+
+    Returns:
+        dict mapping task_name -> first completion timestep (obs index), or None.
+    """
+    completion = {t: None for t in KITCHEN_TASKS}
+
+    for t in range(len(observations)):
+        qpos = observations[t, 0:30]
+        for task in KITCHEN_TASKS:
+            if completion[task] is not None:
+                continue
+            idx = OBS_ELEMENT_INDICES[task]
+            dist = np.linalg.norm(qpos[idx] - OBS_ELEMENT_GOALS[task])
+            if dist < BONUS_THRESH:
+                completion[task] = t
+    return completion
+
+
+def get_subtask_range(completions, task_name):
+    """Given task completion times, return (init_t, goal_t) for a specific task.
+
+    init_t: first timestep of this subtask (after previous task completed, or 0).
+    goal_t: first timestep where the task is complete (goal observation index).
+    """
+    ct = completions[task_name]
+
+    # init_t = after the latest task that was completed before this one
+    prev_ct = -1
+    for other_ct in completions.values():
+        if other_ct < ct:
+            prev_ct = max(prev_ct, other_ct)
+
+    init_t = prev_ct + 1  # 0 if this task was completed first
+    return (init_t, ct)
 
 
 def _frames_to_tensor(frame_buffer, device):
@@ -40,44 +109,142 @@ def _d4rl_set_qpos(env, qpos):
     env.sim.forward()
 
 
-# Hardcoded from d4rl kitchen-complete-v0 episode 0 (image eval only)
-SUBTASK_BOUNDARIES = [
-    {'subtask_idx': 0, 'subtask_name': 'microwave',     'init_t': 0,   'goal_t': 42,  'max_steps': 84,  'baseline_tasks': 0},
-    {'subtask_idx': 1, 'subtask_name': 'kettle',        'init_t': 42,  'goal_t': 79,  'max_steps': 80,  'baseline_tasks': 1},
-    {'subtask_idx': 2, 'subtask_name': 'light switch',  'init_t': 79,  'goal_t': 139, 'max_steps': 120, 'baseline_tasks': 2},
-    {'subtask_idx': 3, 'subtask_name': 'slide cabinet', 'init_t': 139, 'goal_t': 172, 'max_steps': 80,  'baseline_tasks': 3},
-]
 
-_SUBTASK_NAMES = ['microwave', 'kettle', 'light switch', 'slide cabinet']
+def get_full_sequence_config(dataset_name="D4RL/kitchen/complete-v2"):
+    """Return init/goal configs for full-sequence eval from all episodes."""
+    dataset = minari.load_dataset(dataset_name, download=True)
+    eval_states = []
+    for ep in dataset.iterate_episodes():
+        obs = ep.observations["observation"]
+        eval_states.append({
+            'init_obs': obs[0].astype(np.float32),
+            'goal_obs': obs[-1].astype(np.float32),
+            'max_steps': len(obs) * 2,
+        })
+    return eval_states
 
 
 def get_subtask_configs(dataset_name="D4RL/kitchen/complete-v2"):
-    """Find subtask boundaries by scanning rewards in Minari episode 0 (state eval only)."""
-    ep = list(minari.load_dataset(dataset_name).iterate_episodes())[0]
-    obs = ep.observations["observation"]
-    rewards = ep.rewards
+    """Extract subtask eval configs from all kitchen-complete episodes.
 
-    # Rewards are cumulative task count (0,0,...,1,1,...,2,2,...,3,3,...,4,4)
-    assert rewards[-1] >= 4, f"Episode 0 only completed {int(rewards[-1])} tasks, expected 4"
-    completion_times = [int(np.searchsorted(rewards, k)) for k in [1, 2, 3, 4]]
+    Returns dict mapping task_name -> list of eval dicts with init/goal
+    observations and subtask boundaries.
+    """
+    dataset = minari.load_dataset(dataset_name, download=True)
+    configs = {t: [] for t in KITCHEN_TASKS}
 
-    configs = []
-    for i, ct in enumerate(completion_times):
-        init_t = 0 if i == 0 else completion_times[i - 1] + 1
-        goal_t = ct + 1  # obs after the completing action
-        duration = goal_t - init_t
-        configs.append({
-            'subtask_idx': i,
-            'subtask_name': _SUBTASK_NAMES[i],
-            'init_t': init_t,
-            'goal_t': goal_t,
-            'max_steps': duration * 2,
-            'baseline_tasks': i,
-            'goal_obs': obs[goal_t].astype(np.float32),
-            'init_obs': obs[init_t].astype(np.float32),
-        })
+    for ep in dataset.iterate_episodes():
+        completions = detect_task_completion_times_minari(ep.observations)
+        obs = ep.observations['observation']
+
+        for task_name in KITCHEN_TASKS:
+            init_t, goal_t = get_subtask_range(completions, task_name)
+            duration = goal_t - init_t
+            baseline = sum(1 for ct in completions.values() if ct < init_t)
+            configs[task_name].append({
+                'subtask_name': task_name,
+                'init_t': init_t,
+                'goal_t': goal_t,
+                'max_steps': duration * 2,
+                'baseline_tasks': baseline,
+                'goal_obs': obs[goal_t].astype(np.float32),
+                'init_obs': obs[init_t].astype(np.float32),
+            })
     return configs
 
+
+def get_image_subtask_configs(datapath, env_name, frame_stack=1):
+    """Extract subtask image eval configs from all d4rl kitchen-complete trajectories.
+
+    Returns dict mapping task_name -> list of eval dicts with init qpos,
+    goal frames, and subtask boundaries.
+    """
+    import os
+    import glob
+    import re
+    import gym
+    import d4rl
+
+    env = gym.make(env_name)
+    dataset = env.get_dataset()
+    all_obs = dataset['observations']
+    terminals = np.where(dataset['terminals'])[0]
+    env.close()
+
+    traj_dirs = sorted(glob.glob(os.path.join(datapath, "traj*")),
+                       key=lambda x: int(re.search(r'\d+', os.path.basename(x)).group()))
+
+    configs = {t: [] for t in KITCHEN_TASKS}
+    obs_id = 0
+    for traj_id, term_idx in enumerate(terminals):
+        if traj_id >= len(traj_dirs):
+            break
+        traj_len = term_idx - obs_id + 1
+        traj_obs = all_obs[obs_id:obs_id + traj_len]
+        traj_dir = traj_dirs[traj_id]
+        completions = detect_task_completion_times_d4rl(traj_obs)
+
+        for task_name in KITCHEN_TASKS:
+            init_t, goal_t = get_subtask_range(completions, task_name)
+            duration = goal_t - init_t
+            baseline = sum(1 for ct in completions.values() if ct < init_t)
+            goal_frames = [
+                Image.open(os.path.join(traj_dir, f"img{max(0, goal_t - frame_stack + k + 1)}.png"))
+                for k in range(frame_stack)
+            ]
+            init_qpos_seq = [all_obs[obs_id + max(0, init_t - frame_stack + k + 1), :30]
+                             for k in range(frame_stack)]
+            configs[task_name].append({
+                'init_qpos_seq': init_qpos_seq,
+                'goal_frames': goal_frames,
+                'max_steps': duration * 2,
+                'baseline_tasks': baseline,
+            })
+
+        obs_id = term_idx + 1
+
+    return configs
+
+
+def get_image_full_sequence_configs(datapath, env_name, frame_stack=1):
+    """Collect full-sequence image eval states from all d4rl trajectories."""
+    import os
+    import glob
+    import re
+    import gym
+    import d4rl
+
+    env = gym.make(env_name)
+    dataset = env.get_dataset()
+    all_obs = dataset['observations']
+    terminals = np.where(dataset['terminals'])[0]
+    env.close()
+
+    traj_dirs = sorted(glob.glob(os.path.join(datapath, "traj*")),
+                       key=lambda x: int(re.search(r'\d+', os.path.basename(x)).group()))
+
+    eval_states = []
+    obs_id = 0
+    for traj_id, term_idx in enumerate(terminals):
+        if traj_id >= len(traj_dirs):
+            break
+        traj_len = term_idx - obs_id + 1
+        traj_dir = traj_dirs[traj_id]
+
+        goal_frames = [
+            Image.open(os.path.join(traj_dir, f"img{max(0, traj_len - 1 - frame_stack + k + 1)}.png"))
+            for k in range(frame_stack)
+        ]
+        init_qpos_seq = [all_obs[obs_id, :30] for _ in range(frame_stack)]
+        eval_states.append({
+            'init_qpos_seq': init_qpos_seq,
+            'goal_frames': goal_frames,
+            'max_steps': traj_len * 2,
+        })
+
+        obs_id = term_idx + 1
+
+    return eval_states
 
 
 def rollout_image_d4rl(env, policy, value_model, init_qpos_seq, goal_frames,
@@ -86,7 +253,7 @@ def rollout_image_d4rl(env, policy, value_model, init_qpos_seq, goal_frames,
 
     init_qpos_seq: list of frame_stack qpos arrays (oldest to newest) for initial frame buffer.
     goal_frames: list of frame_stack PIL Images (oldest to newest) from disk at goal_t.
-    value_model: frozen VIP encoder, or None if policy has its own encoder (trainable_encoder mode).
+    value_model: frozen VIP encoder, or None if policy has its own encoder (use_pretrained mode).
     Returns dict with total_reward, tasks_completed, episode_length.
     """
     if value_model is not None:
@@ -167,11 +334,15 @@ def rollout(env, policy, goal_obs, init_obs, max_steps=280, device="cuda"):
     }
 
 
-def evaluate_policy(env, policy, goal_obs, init_obs, n_episodes=10, max_steps=280, device="cuda"):
-    """Run multiple rollouts and return aggregated results."""
+def evaluate_policy(env, policy, eval_states, max_steps=280, device="cuda"):
+    """Run one deterministic rollout per eval state and return aggregated results.
+
+    eval_states: list of dicts with 'init_obs', 'goal_obs' (and optionally 'max_steps').
+    """
     results = []
-    for _ in range(n_episodes):
-        results.append(rollout(env, policy, goal_obs, init_obs, max_steps, device))
+    for es in eval_states:
+        ms = es.get('max_steps', max_steps)
+        results.append(rollout(env, policy, es['goal_obs'], es['init_obs'], ms, device))
 
     rewards = [r["total_reward"] for r in results]
     lengths = [r["episode_length"] for r in results]
